@@ -22,6 +22,34 @@ impl FlexLayoutEngine {
         Self
     }
 
+    /// Calculate padding values from style
+    fn calculate_padding(&self, style: &Style) -> (f64, f64, f64, f64) {
+        if let Some(padding) = &style.padding {
+            (
+                padding.top.to_px(),
+                padding.right.to_px(),
+                padding.bottom.to_px(),
+                padding.left.to_px(),
+            )
+        } else {
+            (0.0, 0.0, 0.0, 0.0)
+        }
+    }
+
+    /// Calculate margin values from style
+    fn calculate_margin(&self, style: &Style) -> (f64, f64, f64, f64) {
+        if let Some(margin) = &style.margin {
+            (
+                margin.top.to_px(),
+                margin.right.to_px(),
+                margin.bottom.to_px(),
+                margin.left.to_px(),
+            )
+        } else {
+            (0.0, 0.0, 0.0, 0.0)
+        }
+    }
+
     /// Layout children of a flex container according to flexbox rules
     /// This is the main entry point for flex layout logic
     pub fn layout_flex_children(
@@ -39,6 +67,16 @@ impl FlexLayoutEngine {
         let container_width = container_bounds.width;
         let container_height = container_bounds.height;
 
+        // Calculate padding to adjust the content area
+        let (padding_top, padding_right, padding_bottom, padding_left) =
+            self.calculate_padding(style);
+
+        // Adjust content area for padding
+        let content_x = container_x + padding_left;
+        let content_y = container_y + padding_top;
+        let content_width = container_width - padding_left - padding_right;
+        let content_height = container_height - padding_top - padding_bottom;
+
         // First pass: layout all children to get their natural sizes
         let children = container.borrow().children.clone();
         for child in &children {
@@ -51,10 +89,10 @@ impl FlexLayoutEngine {
             FlexDirection::Row => {
                 self.layout_row_with_wrap(
                     &children,
-                    container_x,
-                    container_y,
-                    container_width,
-                    container_height,
+                    content_x,
+                    content_y,
+                    content_width,
+                    content_height,
                     flex_wrap,
                     style,
                     engine,
@@ -63,9 +101,9 @@ impl FlexLayoutEngine {
             FlexDirection::Column => {
                 self.layout_column_with_wrap(
                     &children,
-                    container_x,
-                    container_y,
-                    container_height,
+                    content_x,
+                    content_y,
+                    content_height,
                     flex_wrap,
                     style,
                     engine,
@@ -74,18 +112,18 @@ impl FlexLayoutEngine {
             FlexDirection::RowReverse => {
                 self.layout_row_reverse_with_wrap(
                     &children,
-                    container_x,
-                    container_y,
-                    container_width,
+                    content_x,
+                    content_y,
+                    content_width,
                     flex_wrap,
                 );
             }
             FlexDirection::ColumnReverse => {
                 self.layout_column_reverse_with_wrap(
                     &children,
-                    container_x,
-                    container_y,
-                    container_height,
+                    content_x,
+                    content_y,
+                    content_height,
                     flex_wrap,
                 );
             }
@@ -690,20 +728,25 @@ impl FlexLayoutEngine {
                 let mut current_x = container_x;
                 for (index, child) in children.iter().enumerate() {
                     let child_bounds = child.borrow().layout.bounds;
+                    let child_style = child.borrow().layout.style.clone();
+                    let (margin_top, margin_right, margin_bottom, margin_left) =
+                        self.calculate_margin(&child_style);
 
-                    // Position child on main axis
+                    // Position child on main axis with left margin
                     let mut child_borrow = child.borrow_mut();
-                    child_borrow.layout.bounds.x = current_x;
+                    child_borrow.layout.bounds.x = current_x + margin_left;
 
-                    // Apply cross-axis alignment
-                    self.apply_align_items_row(
+                    // Apply cross-axis alignment with top margin
+                    self.apply_align_items_row_with_margin(
                         &mut child_borrow,
                         container_y,
                         container_height,
                         align_items,
+                        margin_top,
+                        margin_bottom,
                     );
 
-                    current_x += child_bounds.width;
+                    current_x += child_bounds.width + margin_left + margin_right;
 
                     // Add gap after each item except the last
                     if index < children.len() - 1 {
@@ -909,6 +952,46 @@ impl FlexLayoutEngine {
                 // TODO: Implement baseline alignment
                 // For now, behave like flex-start
                 child.layout.bounds.y = container_y;
+            }
+        }
+    }
+
+    /// Apply align-items positioning for row direction with margin support
+    fn apply_align_items_row_with_margin(
+        &self,
+        child: &mut std::cell::RefMut<Node>,
+        container_y: f64,
+        container_height: f64,
+        align_items: &AlignItems,
+        margin_top: f64,
+        margin_bottom: f64,
+    ) {
+        match align_items {
+            AlignItems::FlexStart => {
+                child.layout.bounds.y = container_y + margin_top;
+            }
+            AlignItems::Center => {
+                // Center the child vertically within the container, accounting for margins
+                let child_height = child.layout.bounds.height;
+                let available_height = container_height - margin_top - margin_bottom;
+                child.layout.bounds.y =
+                    container_y + margin_top + (available_height - child_height) / 2.0;
+            }
+            AlignItems::FlexEnd => {
+                // Align child to the bottom of the container, accounting for bottom margin
+                let child_height = child.layout.bounds.height;
+                child.layout.bounds.y =
+                    container_y + container_height - child_height - margin_bottom;
+            }
+            AlignItems::Stretch => {
+                // Stretch child to fill container height minus margins
+                child.layout.bounds.y = container_y + margin_top;
+                child.layout.bounds.height = container_height - margin_top - margin_bottom;
+            }
+            AlignItems::Baseline => {
+                // TODO: Implement baseline alignment with margins
+                // For now, behave like flex-start
+                child.layout.bounds.y = container_y + margin_top;
             }
         }
     }

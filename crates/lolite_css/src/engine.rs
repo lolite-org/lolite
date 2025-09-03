@@ -319,6 +319,34 @@ impl Engine {
         }
     }
 
+    /// Calculate margin values from style
+    fn calculate_margin(&self, style: &Style) -> (f64, f64, f64, f64) {
+        if let Some(margin) = &style.margin {
+            (
+                margin.top.to_px(),
+                margin.right.to_px(),
+                margin.bottom.to_px(),
+                margin.left.to_px(),
+            )
+        } else {
+            (0.0, 0.0, 0.0, 0.0)
+        }
+    }
+
+    /// Calculate padding values from style
+    fn calculate_padding(&self, style: &Style) -> (f64, f64, f64, f64) {
+        if let Some(padding) = &style.padding {
+            (
+                padding.top.to_px(),
+                padding.right.to_px(),
+                padding.bottom.to_px(),
+                padding.left.to_px(),
+            )
+        } else {
+            (0.0, 0.0, 0.0, 0.0)
+        }
+    }
+
     pub fn layout(&mut self) {
         self.layout_node(self.document.root.clone(), 0.0, 0.0);
     }
@@ -348,7 +376,7 @@ impl Engine {
             style
         };
 
-        // Set position
+        // Set position (margins will be applied by flex layout engine for flex items)
         {
             let mut node_borrow = node.borrow_mut();
             node_borrow.layout.bounds.x = x;
@@ -403,4 +431,9 @@ mod gap_tests {
 #[cfg(test)]
 mod flex_grow_shrink_basis_tests {
     include!("flex_layout_grow_shrink_basis.test.rs");
+}
+
+#[cfg(test)]
+mod margin_padding_tests {
+    include!("margin_padding.test.rs");
 }
