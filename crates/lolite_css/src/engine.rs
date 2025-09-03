@@ -399,3 +399,8 @@ mod flex_alignment_tests {
 mod gap_tests {
     include!("flex_layout_gap.test.rs");
 }
+
+#[cfg(test)]
+mod flex_grow_shrink_basis_tests {
+    include!("flex_layout_grow_shrink_basis.test.rs");
+}

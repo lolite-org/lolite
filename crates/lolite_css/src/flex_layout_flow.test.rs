@@ -417,18 +417,18 @@ mod tests {
         let (x2, y2, w2, h2) = get_bounds(&engine, item2);
         let (x3, y3, w3, h3) = get_bounds(&engine, item3);
 
-        // For now, just verify the layout runs and preserves base dimensions
-        assert_eq!(w1, 50.0); // TODO: Should grow to fill space
+        // Verify flex-grow behavior is working correctly
+        assert_eq!(w1, 100.0); // Should grow: 50 + (150 * 1/3) = 100px
         assert_eq!(h1, 30.0);
-        assert_eq!(w2, 50.0); // TODO: Should grow more than item1
+        assert_eq!(w2, 150.0); // Should grow more: 50 + (150 * 2/3) = 150px
         assert_eq!(h2, 30.0);
-        assert_eq!(w3, 50.0); // Should keep original size
+        assert_eq!(w3, 50.0); // Should keep original size (no flex-grow)
         assert_eq!(h3, 30.0);
 
-        // Verify positioning (even without flex-grow, items should be positioned correctly)
+        // Verify positioning with flex-grow applied
         assert_eq!(x1, 0.0); // First item at container start
-        assert_eq!(x2, 50.0); // Second item after first (0 + 50)
-        assert_eq!(x3, 100.0); // Third item after second (50 + 50)
+        assert_eq!(x2, 100.0); // Second item after first (0 + 100)
+        assert_eq!(x3, 250.0); // Third item after second (100 + 150)
 
         // All items should be on the same horizontal line
         assert_eq!(y1, 0.0);

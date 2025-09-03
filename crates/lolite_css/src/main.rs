@@ -10,6 +10,22 @@ fn main() -> anyhow::Result<()> {
 
     // style
     engine.style_sheet.add_rule(engine::Rule {
+        selector: engine::Selector::Class("flex_container".to_owned()),
+        declarations: vec![engine::Style {
+            display: engine::Display::Flex,
+            flex_direction: Some(engine::FlexDirection::Row),
+            gap: Some(engine::Length::Px(10.0)),
+            padding: Some(engine::Extend {
+                top: engine::Length::Px(10.0),
+                right: engine::Length::Px(10.0),
+                bottom: engine::Length::Px(10.0),
+                left: engine::Length::Px(10.0),
+            }),
+            ..Default::default()
+        }],
+    });
+
+    engine.style_sheet.add_rule(engine::Rule {
         selector: engine::Selector::Class("red_box".to_owned()),
         declarations: vec![engine::Style {
             background_color: Some(engine::Rgba {
@@ -70,6 +86,7 @@ fn main() -> anyhow::Result<()> {
     document.set_parent(root, a).unwrap();
     document.set_parent(root, b).unwrap();
     document.set_parent(root, c).unwrap();
+    document.set_attribute(root, "class".to_owned(), "flex_container".to_owned());
     document.set_attribute(a, "class".to_owned(), "red_box".to_owned());
     document.set_attribute(b, "class".to_owned(), "green_box".to_owned());
 

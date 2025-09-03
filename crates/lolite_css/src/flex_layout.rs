@@ -10,7 +10,7 @@
  */
 
 use crate::engine::{
-    AlignContent, AlignItems, Engine, FlexDirection, FlexWrap, JustifyContent, Node, Style,
+    AlignContent, AlignItems, Engine, FlexDirection, FlexWrap, JustifyContent, Length, Node, Style,
 };
 use std::{cell::RefCell, rc::Rc};
 
@@ -57,6 +57,7 @@ impl FlexLayoutEngine {
                     container_height,
                     flex_wrap,
                     style,
+                    engine,
                 );
             }
             FlexDirection::Column => {
@@ -67,6 +68,7 @@ impl FlexLayoutEngine {
                     container_height,
                     flex_wrap,
                     style,
+                    engine,
                 );
             }
             FlexDirection::RowReverse => {
@@ -100,6 +102,7 @@ impl FlexLayoutEngine {
         container_height: f64,
         flex_wrap: &FlexWrap,
         style: &Style,
+        engine: &Engine,
     ) {
         // Get gap values - CSS gap properties take precedence over individual gap properties
         let column_gap = if let Some(gap) = &style.gap {
@@ -129,6 +132,7 @@ impl FlexLayoutEngine {
                     container_height,
                     style,
                     column_gap,
+                    engine,
                 );
             }
             FlexWrap::Wrap => {
@@ -227,6 +231,7 @@ impl FlexLayoutEngine {
                     container_height,
                     &FlexWrap::Wrap,
                     style,
+                    engine,
                 );
             }
         }
@@ -241,6 +246,7 @@ impl FlexLayoutEngine {
         container_height: f64,
         flex_wrap: &FlexWrap,
         style: &Style,
+        engine: &Engine,
     ) {
         // Get gap values
         let row_gap = if let Some(gap) = &style.gap {
@@ -253,19 +259,27 @@ impl FlexLayoutEngine {
 
         match flex_wrap {
             FlexWrap::NoWrap => {
-                // Original nowrap behavior with gap support
+                // Calculate flex sizes first - this handles flex-grow, flex-shrink, and flex-basis
+                let final_heights =
+                    self.calculate_flex_sizes_column(children, container_height, row_gap, engine);
+
+                // Update children bounds with calculated flex sizes
+                for (i, child) in children.iter().enumerate() {
+                    let mut child_borrow = child.borrow_mut();
+                    child_borrow.layout.bounds.height = final_heights[i];
+                }
+
+                // Position children with calculated heights
                 let current_x = container_x;
                 let mut current_y = container_y;
 
                 for (index, child) in children.iter().enumerate() {
-                    let child_bounds = child.borrow().layout.bounds;
-
                     // Position child
                     let mut child_borrow = child.borrow_mut();
                     child_borrow.layout.bounds.x = current_x;
                     child_borrow.layout.bounds.y = current_y;
 
-                    current_y += child_bounds.height;
+                    current_y += final_heights[index];
 
                     // Add row gap after each item except the last
                     if index < children.len() - 1 {
@@ -331,6 +345,7 @@ impl FlexLayoutEngine {
                     container_height,
                     &FlexWrap::Wrap,
                     style,
+                    engine,
                 );
             }
         }
@@ -414,6 +429,224 @@ impl FlexLayoutEngine {
         }
     }
 
+    /// Apply flex-grow, flex-shrink, and flex-basis to calculate final sizes for row direction
+    fn calculate_flex_sizes_row(
+        &self,
+        children: &[Rc<RefCell<Node>>],
+        container_width: f64,
+        column_gap: f64,
+        engine: &Engine,
+    ) -> Vec<f64> {
+        let mut final_widths = Vec::new();
+
+        // First, calculate the base sizes (flex-basis or width)
+        let mut base_sizes = Vec::new();
+        let mut flex_grows = Vec::new();
+        let mut flex_shrinks = Vec::new();
+
+        for child in children {
+            let child_style = child.borrow().layout.style.clone();
+
+            // Get flex-basis or fall back to width
+            let base_size = if let Some(flex_basis) = &child_style.flex_basis {
+                match flex_basis {
+                    Length::Auto => {
+                        // Use width if available, otherwise use current bounds width
+                        child_style
+                            .width
+                            .as_ref()
+                            .map(|w| w.to_px())
+                            .unwrap_or(child.borrow().layout.bounds.width)
+                    }
+                    _ => flex_basis.to_px(),
+                }
+            } else {
+                // No flex-basis, use width or current bounds
+                child_style
+                    .width
+                    .as_ref()
+                    .map(|w| w.to_px())
+                    .unwrap_or(child.borrow().layout.bounds.width)
+            };
+
+            base_sizes.push(base_size);
+            flex_grows.push(child_style.flex_grow.unwrap_or(0.0));
+            flex_shrinks.push(child_style.flex_shrink.unwrap_or(1.0));
+        }
+
+        // Calculate total base size and gaps
+        let total_base_size: f64 = base_sizes.iter().sum();
+        let total_gap_size = if children.len() > 1 {
+            column_gap * (children.len() - 1) as f64
+        } else {
+            0.0
+        };
+        let total_content_size = total_base_size + total_gap_size;
+
+        // Check if any flex properties are explicitly set
+        let has_explicit_flex_properties = children.iter().any(|child| {
+            let style = child.borrow().layout.style.clone();
+            style.flex_grow.is_some() || style.flex_shrink.is_some() || style.flex_basis.is_some()
+        });
+
+        // Determine if we need to grow or shrink
+        let free_space = container_width - total_content_size;
+
+        if has_explicit_flex_properties {
+            if free_space > 0.0 {
+                // We have extra space - apply flex-grow
+                let total_grow: f64 = flex_grows.iter().sum();
+
+                if total_grow > 0.0 {
+                    for (i, &base_size) in base_sizes.iter().enumerate() {
+                        let grow_ratio = flex_grows[i] / total_grow;
+                        final_widths.push(base_size + (free_space * grow_ratio));
+                    }
+                } else {
+                    // No flex-grow values, use base sizes
+                    final_widths = base_sizes;
+                }
+            } else if free_space < 0.0 {
+                // We need to shrink - apply flex-shrink
+                let overflow = -free_space;
+                let mut weighted_shrink_sum = 0.0;
+
+                // Calculate weighted shrink sum (flex-shrink * base-size)
+                for (i, &base_size) in base_sizes.iter().enumerate() {
+                    weighted_shrink_sum += flex_shrinks[i] * base_size;
+                }
+
+                if weighted_shrink_sum > 0.0 {
+                    for (i, &base_size) in base_sizes.iter().enumerate() {
+                        let shrink_ratio = (flex_shrinks[i] * base_size) / weighted_shrink_sum;
+                        let shrink_amount = overflow * shrink_ratio;
+                        final_widths.push((base_size - shrink_amount).max(0.0));
+                    }
+                } else {
+                    // No flex-shrink values, use base sizes (may overflow)
+                    final_widths = base_sizes;
+                }
+            } else {
+                // Perfect fit - use base sizes
+                final_widths = base_sizes;
+            }
+        } else {
+            // No explicit flex properties - use base sizes (legacy behavior)
+            final_widths = base_sizes;
+        }
+
+        final_widths
+    }
+
+    /// Apply flex-grow, flex-shrink, and flex-basis to calculate final sizes for column direction
+    fn calculate_flex_sizes_column(
+        &self,
+        children: &[Rc<RefCell<Node>>],
+        container_height: f64,
+        row_gap: f64,
+        engine: &Engine,
+    ) -> Vec<f64> {
+        let mut final_heights = Vec::new();
+
+        // First, calculate the base sizes (flex-basis or height)
+        let mut base_sizes = Vec::new();
+        let mut flex_grows = Vec::new();
+        let mut flex_shrinks = Vec::new();
+
+        for child in children {
+            let child_style = child.borrow().layout.style.clone();
+
+            // Get flex-basis or fall back to height
+            let base_size = if let Some(flex_basis) = &child_style.flex_basis {
+                match flex_basis {
+                    Length::Auto => {
+                        // Use height if available, otherwise use current bounds height
+                        child_style
+                            .height
+                            .as_ref()
+                            .map(|h| h.to_px())
+                            .unwrap_or(child.borrow().layout.bounds.height)
+                    }
+                    _ => flex_basis.to_px(),
+                }
+            } else {
+                // No flex-basis, use height or current bounds
+                child_style
+                    .height
+                    .as_ref()
+                    .map(|h| h.to_px())
+                    .unwrap_or(child.borrow().layout.bounds.height)
+            };
+
+            base_sizes.push(base_size);
+            flex_grows.push(child_style.flex_grow.unwrap_or(0.0));
+            flex_shrinks.push(child_style.flex_shrink.unwrap_or(1.0));
+        }
+
+        // Calculate total base size and gaps
+        let total_base_size: f64 = base_sizes.iter().sum();
+        let total_gap_size = if children.len() > 1 {
+            row_gap * (children.len() - 1) as f64
+        } else {
+            0.0
+        };
+        let total_content_size = total_base_size + total_gap_size;
+
+        // Check if any flex properties are explicitly set
+        let has_explicit_flex_properties = children.iter().any(|child| {
+            let style = child.borrow().layout.style.clone();
+            style.flex_grow.is_some() || style.flex_shrink.is_some() || style.flex_basis.is_some()
+        });
+
+        // Determine if we need to grow or shrink
+        let free_space = container_height - total_content_size;
+
+        if has_explicit_flex_properties {
+            if free_space > 0.0 {
+                // We have extra space - apply flex-grow
+                let total_grow: f64 = flex_grows.iter().sum();
+
+                if total_grow > 0.0 {
+                    for (i, &base_size) in base_sizes.iter().enumerate() {
+                        let grow_ratio = flex_grows[i] / total_grow;
+                        final_heights.push(base_size + (free_space * grow_ratio));
+                    }
+                } else {
+                    // No flex-grow values, use base sizes
+                    final_heights = base_sizes;
+                }
+            } else if free_space < 0.0 {
+                // We need to shrink - apply flex-shrink
+                let overflow = -free_space;
+                let mut weighted_shrink_sum = 0.0;
+
+                // Calculate weighted shrink sum (flex-shrink * base-size)
+                for (i, &base_size) in base_sizes.iter().enumerate() {
+                    weighted_shrink_sum += flex_shrinks[i] * base_size;
+                }
+
+                if weighted_shrink_sum > 0.0 {
+                    for (i, &base_size) in base_sizes.iter().enumerate() {
+                        let shrink_ratio = (flex_shrinks[i] * base_size) / weighted_shrink_sum;
+                        let shrink_amount = overflow * shrink_ratio;
+                        final_heights.push((base_size - shrink_amount).max(0.0));
+                    }
+                } else {
+                    // No flex-shrink values, use base sizes (may overflow)
+                    final_heights = base_sizes;
+                }
+            } else {
+                // Perfect fit - use base sizes
+                final_heights = base_sizes;
+            }
+        } else {
+            // No explicit flex properties - use base sizes (legacy behavior)
+            final_heights = base_sizes;
+        }
+
+        final_heights
+    }
+
     /// Apply justify-content positioning for row direction with gap support
     fn apply_justify_content_row_with_gap(
         &self,
@@ -424,6 +657,7 @@ impl FlexLayoutEngine {
         container_height: f64,
         style: &Style,
         column_gap: f64,
+        engine: &Engine,
     ) {
         let justify_content = style
             .justify_content
@@ -431,11 +665,18 @@ impl FlexLayoutEngine {
             .unwrap_or(&JustifyContent::FlexStart);
         let align_items = style.align_items.as_ref().unwrap_or(&AlignItems::FlexStart);
 
-        // Calculate total width of all children plus gaps
-        let total_child_width: f64 = children
-            .iter()
-            .map(|child| child.borrow().layout.bounds.width)
-            .sum();
+        // Calculate flex sizes first - this handles flex-grow, flex-shrink, and flex-basis
+        let final_widths =
+            self.calculate_flex_sizes_row(children, container_width, column_gap, &engine);
+
+        // Update children bounds with calculated flex sizes
+        for (i, child) in children.iter().enumerate() {
+            let mut child_borrow = child.borrow_mut();
+            child_borrow.layout.bounds.width = final_widths[i];
+        }
+
+        // Calculate total width and free space after flex sizing
+        let total_child_width: f64 = final_widths.iter().sum();
         let total_gap_width = if children.len() > 1 {
             column_gap * (children.len() - 1) as f64
         } else {
