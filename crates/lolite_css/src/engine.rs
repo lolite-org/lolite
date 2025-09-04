@@ -46,6 +46,12 @@ impl Node {
 #[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct Id(u64);
 
+impl Id {
+    pub fn value(&self) -> u64 {
+        self.0
+    }
+}
+
 pub(crate) struct Document {
     #[allow(unused)]
     root: Rc<RefCell<Node>>,
@@ -132,6 +138,10 @@ impl Document {
 
     pub fn root_node(&self) -> Rc<RefCell<Node>> {
         self.root.clone()
+    }
+
+    pub fn get_node(&self, id: Id) -> Option<Rc<RefCell<Node>>> {
+        self.nodes.get(&id).cloned()
     }
 }
 
@@ -450,31 +460,19 @@ impl Engine {
 }
 
 #[cfg(test)]
-mod flex_layout_flow_tests {
-    include!("flex_layout_flow.test.rs");
-}
+mod flex_layout_flow_tests;
 
 #[cfg(test)]
-mod flex_alignment_tests {
-    include!("flex_layout_alignment.test.rs");
-}
+mod flex_layout_alignment_tests;
 
 #[cfg(test)]
-mod gap_tests {
-    include!("flex_layout_gap.test.rs");
-}
+mod flex_layout_gap_tests;
 
 #[cfg(test)]
-mod flex_grow_shrink_basis_tests {
-    include!("flex_layout_grow_shrink_basis.test.rs");
-}
+mod flex_layout_grow_shrink_basis_tests;
 
 #[cfg(test)]
-mod margin_padding_tests {
-    include!("margin_padding.test.rs");
-}
+mod margin_padding_tests;
 
 #[cfg(test)]
-mod hit_testing_tests {
-    include!("hit_testing.test.rs");
-}
+mod hit_testing_tests;
