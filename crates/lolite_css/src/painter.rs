@@ -1,5 +1,5 @@
 use crate::engine::{Document, Length, Node, Rgba};
-use skia_safe::{typeface, Canvas, Color, Color4f, Paint, RRect, Rect};
+use skia_safe::{Canvas, Color, Color4f, Paint, RRect, Rect};
 
 pub(crate) struct Painter<'a> {
     canvas: &'a Canvas,

@@ -47,11 +47,16 @@ const BUFFER_COUNT: usize = 2;
 #[cfg(all(target_os = "windows"))]
 pub struct D3D12Backend<'a> {
     window: Window,
+    #[allow(unused)]
     factory: IDXGIFactory4,
-    swap_chain: IDXGISwapChain3,
-    direct_context: DirectContext,
-    surfaces: [Option<(Surface, BackendRenderTarget)>; BUFFER_COUNT],
+    // Device/queue container declared BEFORE dependents so it drops LAST
     backend_context: BackendContext,
+    // Swap chain declared before DirectContext so it drops AFTER Skia context
+    swap_chain: IDXGISwapChain3,
+    // Skia context declared before backend_context so it drops BEFORE device/queue
+    direct_context: DirectContext,
+    // Surfaces declared after above so they drop FIRST
+    surfaces: [Option<(Surface, BackendRenderTarget)>; BUFFER_COUNT],
     input_state: InputState,
     params: &'a RefCell<Params>,
     current_width: u32,
@@ -122,10 +127,10 @@ impl<'a> RenderingBackend<'a> for D3D12Backend<'a> {
         let mut backend = Self {
             window,
             factory,
+            backend_context,
             swap_chain,
             direct_context,
             surfaces: [None, None],
-            backend_context,
             input_state: InputState::default(),
             params,
             current_width: width,
@@ -297,6 +302,20 @@ impl<'a> D3D12Backend<'a> {
             let _ = CloseHandle(event);
         }
         Ok(())
+    }
+}
+
+#[cfg(all(target_os = "windows"))]
+impl<'a> Drop for D3D12Backend<'a> {
+    fn drop(&mut self) {
+        // Ensure Skia finishes and releases all refs before Device/SwapChain are dropped
+        self.direct_context.flush_and_submit();
+        self.drop_surfaces();
+        self.direct_context.flush_and_submit();
+        // Wait for GPU idle to ensure swapchain/device have no pending work
+        let _ = self.wait_for_gpu_idle();
+        // Best-effort: make Skia forget any cached GPU refs
+        self.direct_context.abandon();
     }
 }
 
