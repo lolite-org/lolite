@@ -12,10 +12,13 @@ use winit::{
 use windows::{
     core::Interface,
     Win32::{
-        Foundation::HWND,
+        Foundation::{CloseHandle, HANDLE, HWND},
         Graphics::{
             Direct3D::D3D_FEATURE_LEVEL_11_0,
-            Direct3D12::{D3D12CreateDevice, ID3D12Device, D3D12_RESOURCE_STATE_COMMON},
+            Direct3D12::{
+                D3D12CreateDevice, D3D12GetDebugInterface, ID3D12Debug, ID3D12Device, ID3D12Fence,
+                D3D12_FENCE_FLAG_NONE, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PRESENT,
+            },
             Dxgi::{
                 Common::{
                     DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SAMPLE_DESC,
@@ -27,6 +30,7 @@ use windows::{
                 DXGI_USAGE_RENDER_TARGET_OUTPUT,
             },
         },
+        System::Threading::{CreateEventW, WaitForSingleObject},
     },
 };
 
@@ -39,22 +43,37 @@ use skia_safe::{
     ColorType, Surface,
 };
 
+#[cfg(all(target_os = "windows"))]
 const BUFFER_COUNT: usize = 2;
 
 /// Direct3D 12 rendering backend implementation
 #[cfg(all(target_os = "windows"))]
 pub struct D3D12Backend<'a> {
     window: Window,
+    factory: IDXGIFactory4,
     swap_chain: IDXGISwapChain3,
     direct_context: DirectContext,
-    surfaces: [(Surface, BackendRenderTarget); BUFFER_COUNT],
+    surfaces: [Option<(Surface, BackendRenderTarget)>; BUFFER_COUNT],
+    backend_context: BackendContext,
     input_state: InputState,
     params: &'a RefCell<Params>,
+    current_width: u32,
+    current_height: u32,
 }
 
 #[cfg(all(target_os = "windows"))]
 impl<'a> RenderingBackend<'a> for D3D12Backend<'a> {
     fn new(event_loop: &ActiveEventLoop, params: &'a RefCell<Params>) -> Result<Self> {
+        // Enable D3D12 debug layer (best effort)
+        #[cfg(debug_assertions)]
+        unsafe {
+            let mut dbg: Option<ID3D12Debug> = None;
+            if D3D12GetDebugInterface(&mut dbg).is_ok() {
+                if let Some(debug) = dbg {
+                    debug.EnableDebugLayer();
+                }
+            }
+        }
         let mut window_attributes = WindowAttributes::default();
         window_attributes.inner_size = Some(Size::new(LogicalSize::new(800, 800)));
         window_attributes.title = "Lolite CSS - Direct3D 12".into();
@@ -102,25 +121,95 @@ impl<'a> RenderingBackend<'a> for D3D12Backend<'a> {
         }?
         .cast()?;
 
-        let surfaces: [_; BUFFER_COUNT] = std::array::from_fn(|i| {
-            let resource = unsafe { swap_chain.GetBuffer(i as u32).unwrap() };
+        let mut backend = Self {
+            window,
+            factory,
+            swap_chain,
+            direct_context,
+            surfaces: [None, None],
+            backend_context,
+            input_state: InputState::default(),
+            params,
+            current_width: width,
+            current_height: height,
+        };
 
+        backend.recreate_surfaces(width, height)?;
+
+        println!("D3D12 backend initialized with {} surfaces.", BUFFER_COUNT);
+        Ok(backend)
+    }
+
+    fn handle_window_event(&mut self, event: &WindowEvent) -> bool {
+        match event {
+            WindowEvent::Resized(new_size) => {
+                if new_size.width > 0 && new_size.height > 0 {
+                    // Perform safe resize
+                    if let Err(err) = self.resize(new_size.width, new_size.height) {
+                        eprintln!("Resize failed: {:?}", err);
+                    }
+                    self.request_redraw();
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn render(&mut self) {
+        let index = unsafe { self.swap_chain.GetCurrentBackBufferIndex() };
+        if self.surfaces[index as usize].is_none() {
+            // Attempt to restore valid surfaces to avoid panic
+            let _ = self.recreate_surfaces(self.current_width, self.current_height);
+        }
+        let Some((surface, _)) = self.surfaces[index as usize].as_mut() else {
+            // Give up this frame rather than panic
+            return;
+        };
+        let canvas = surface.canvas();
+
+        (self.params.borrow_mut().on_draw)(canvas);
+        self.direct_context.flush_and_submit_surface(surface, None);
+        // Extra flush to ensure state transitions back to PRESENT/COMMON before Present
+        self.direct_context.flush_and_submit();
+        unsafe { self.swap_chain.Present(1, DXGI_PRESENT::default()) }.unwrap();
+    }
+
+    fn input_state_mut(&mut self) -> &mut InputState {
+        &mut self.input_state
+    }
+    fn input_state(&self) -> &InputState {
+        &self.input_state
+    }
+    fn params(&self) -> &'a RefCell<Params> {
+        self.params
+    }
+    fn request_redraw(&self) {
+        self.window.request_redraw();
+    }
+}
+
+#[cfg(all(target_os = "windows"))]
+impl<'a> D3D12Backend<'a> {
+    fn recreate_surfaces(&mut self, width: u32, height: u32) -> Result<()> {
+        for i in 0..BUFFER_COUNT {
+            let resource = unsafe { self.swap_chain.GetBuffer(i as u32).unwrap() };
             let backend_render_target = BackendRenderTarget::new_d3d(
-                window.inner_size().into(),
+                (width as i32, height as i32),
                 &TextureResourceInfo {
                     resource,
                     alloc: None,
-                    resource_state: D3D12_RESOURCE_STATE_COMMON,
+                    resource_state: D3D12_RESOURCE_STATE_PRESENT,
                     format: DXGI_FORMAT_R8G8B8A8_UNORM,
                     sample_count: 1,
-                    level_count: 0,
-                    sample_quality_pattern: DXGI_STANDARD_MULTISAMPLE_QUALITY_PATTERN,
+                    level_count: 1,
+                    // For single-sample backbuffers, quality should be 0
+                    sample_quality_pattern: 0,
                     protected: Protected::No,
                 },
             );
-
             let surface = surfaces::wrap_backend_render_target(
-                &mut direct_context,
+                &mut self.direct_context,
                 &backend_render_target,
                 SurfaceOrigin::TopLeft,
                 ColorType::RGBA8888,
@@ -128,67 +217,88 @@ impl<'a> RenderingBackend<'a> for D3D12Backend<'a> {
                 None,
             )
             .unwrap();
-
-            (surface, backend_render_target)
-        });
-
-        println!(
-            "D3D12 backend initialized with {} surfaces.",
-            surfaces.len()
-        );
-
-        let input_state = InputState::default();
-
-        Ok(Self {
-            window,
-            swap_chain,
-            direct_context,
-            surfaces,
-            input_state,
-            params,
-        })
-    }
-
-    fn handle_window_event(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            // D3D12-specific window events can be handled here
-            // For now, we don't handle any backend-specific events
-            _ => false, // Event not handled by this backend
+            self.surfaces[i] = Some((surface, backend_render_target));
         }
+        self.current_width = width;
+        self.current_height = height;
+        Ok(())
     }
 
-    fn render(&mut self) {
-        let index = unsafe { self.swap_chain.GetCurrentBackBufferIndex() };
-        let (surface, _) = &mut self.surfaces[index as usize];
-        let canvas = surface.canvas();
-
-        // Call the user's on_draw callback for all drawing
-        (self.params.borrow_mut().on_draw)(canvas);
-
-        self.direct_context.flush_and_submit_surface(surface, None);
-
-        unsafe { self.swap_chain.Present(1, DXGI_PRESENT::default()) }.unwrap();
-
-        // NOTE: If you get some error when you render, you can check it with:
-        // unsafe {
-        //     device.GetDeviceRemovedReason().ok().unwrap();
-        // }
+    fn drop_surfaces(&mut self) {
+        for i in 0..BUFFER_COUNT {
+            if let Some((surface, backend)) = self.surfaces[i].take() {
+                drop(surface);
+                drop(backend);
+            }
+        }
+        self.direct_context.flush_and_submit();
     }
 
-    fn input_state_mut(&mut self) -> &mut InputState {
-        &mut self.input_state
+    fn resize(&mut self, width: u32, height: u32) -> Result<()> {
+        // Ensure GPU is idle and release Skia refs
+        self.direct_context.flush_and_submit();
+        self.drop_surfaces();
+        self.direct_context.flush_and_submit();
+        // Fully abandon Skia context to drop any cached refs to old swapchain buffers
+        self.direct_context.abandon();
+
+        // Ensure GPU has finished all work on the old backbuffers
+        self.wait_for_gpu_idle()?;
+
+        // Resize swap chain buffers
+        let resize_result = unsafe {
+            self.swap_chain.ResizeBuffers(
+                BUFFER_COUNT as u32,
+                width,
+                height,
+                DXGI_FORMAT_R8G8B8A8_UNORM,
+                Default::default(),
+            )
+        };
+
+        // Recreate DirectContext AFTER resize to ensure fresh Skia state without stale refs
+        self.direct_context =
+            unsafe { DirectContext::new_d3d(&self.backend_context, None) }.unwrap();
+
+        match resize_result {
+            Ok(()) => {
+                self.recreate_surfaces(width, height)?;
+            }
+            Err(e) => {
+                eprintln!("Resize failed: {:?}", e);
+                let _ = self.recreate_surfaces(self.current_width, self.current_height);
+            }
+        }
+        Ok(())
     }
 
-    fn input_state(&self) -> &InputState {
-        &self.input_state
-    }
-
-    fn params(&self) -> &'a RefCell<Params> {
-        self.params
-    }
-
-    fn request_redraw(&self) {
-        self.window.request_redraw();
+    fn wait_for_gpu_idle(&self) -> Result<()> {
+        // Create fence
+        let fence: ID3D12Fence = unsafe {
+            self.backend_context
+                .device
+                .CreateFence(0, D3D12_FENCE_FLAG_NONE)?
+        };
+        let value: u64 = 1;
+        // Signal queue
+        unsafe {
+            self.backend_context.queue.Signal(&fence, value)?;
+        }
+        // Event and wait
+        let event: HANDLE = unsafe { CreateEventW(None, false, false, None)? };
+        if event.is_invalid() {
+            anyhow::bail!("Failed to create event for GPU sync");
+        }
+        unsafe {
+            fence.SetEventOnCompletion(value, event)?;
+        }
+        unsafe {
+            WaitForSingleObject(event, u32::MAX);
+        }
+        unsafe {
+            let _ = CloseHandle(event);
+        }
+        Ok(())
     }
 }
 
@@ -198,15 +308,12 @@ fn get_hardware_adapter_and_device(
 ) -> windows::core::Result<(IDXGIAdapter1, ID3D12Device)> {
     for i in 0.. {
         let adapter = unsafe { factory.EnumAdapters1(i) }?;
-
         let adapter_desc = unsafe { adapter.GetDesc1() }?;
-
         if (DXGI_ADAPTER_FLAG(adapter_desc.Flags as _) & DXGI_ADAPTER_FLAG_SOFTWARE)
             != DXGI_ADAPTER_FLAG_NONE
         {
-            continue; // Don't select the Basic Render Driver adapter.
+            continue;
         }
-
         let mut device = None;
         if unsafe { D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device) }.is_ok() {
             return Ok((adapter, device.unwrap()));
