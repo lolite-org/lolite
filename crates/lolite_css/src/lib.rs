@@ -102,29 +102,93 @@ impl CssEngine {
 
     /// Find elements at a specific position (for hit testing)
     pub fn find_element_at_position(&self, x: f64, y: f64) -> Vec<Id> {
-        let _ = (x, y);
-        // TODO: implement hit-test on snapshot
-        vec![]
+        if let Some(snapshot) = self.snapshot.read().unwrap().as_ref() {
+            self.find_element_at_position_recursive(snapshot, snapshot, x, y)
+        } else {
+            // No snapshot available yet (layout not run)
+            vec![]
+        }
     }
 
-    /// Build a render snapshot that is safe to use from any thread
-    pub fn snapshot(&self) -> RenderNode {
-        if let Some(snap) = self.snapshot.read().unwrap().as_ref() {
-            return snap.clone();
+    /// Recursively find elements at a specific position in the render tree
+    fn find_element_at_position_recursive(
+        &self,
+        root: &RenderNode,
+        node: &RenderNode,
+        x: f64,
+        y: f64,
+    ) -> Vec<Id> {
+        let mut result = Vec::new();
+
+        // Check if the point is within this node's bounds
+        if !self.point_in_bounds(&node.bounds, x, y) {
+            return result;
         }
-        // Fallback empty tree if layout not yet run
-        RenderNode {
-            id: Id::from_u64(0),
-            bounds: engine::Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 0.0,
-                height: 0.0,
-            },
-            style: std::sync::Arc::new(Style::default()),
-            text: None,
-            children: vec![],
+
+        // Check children in reverse order (later children are rendered on top)
+        for child in node.children.iter().rev() {
+            let child_result = self.find_element_at_position_recursive(root, child, x, y);
+            if !child_result.is_empty() {
+                // Found a hit in a child, return the child's result chain
+                return child_result;
+            }
         }
+
+        // No child contains the point, so this node is the topmost
+        // Build the parent chain by traversing up from this node
+        result.push(node.id);
+
+        // Since RenderNode doesn't have parent pointers, we need to build the chain
+        // by finding this node's ancestors in the tree
+        self.build_parent_chain(root, node.id, &mut result);
+
+        result
+    }
+
+    /// Build the parent chain for a given node ID by traversing the render tree
+    fn build_parent_chain(&self, root: &RenderNode, target_id: Id, result: &mut Vec<Id>) {
+        self.find_parent_recursive(root, target_id, result);
+    }
+
+    /// Recursively find the parent chain for a target node
+    fn find_parent_recursive(
+        &self,
+        node: &RenderNode,
+        target_id: Id,
+        result: &mut Vec<Id>,
+    ) -> bool {
+        // Check if any direct child is our target
+        for child in &node.children {
+            if child.id == target_id {
+                // Found the target as a direct child, add this node as parent
+                result.push(node.id);
+                return true;
+            }
+        }
+
+        // Check if target is in any child subtree
+        for child in &node.children {
+            if self.find_parent_recursive(child, target_id, result) {
+                // Target was found in this child's subtree, add this node as ancestor
+                result.push(node.id);
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if a point (x, y) is within the given bounds
+    fn point_in_bounds(&self, bounds: &engine::Rect, x: f64, y: f64) -> bool {
+        x >= bounds.x
+            && x <= bounds.x + bounds.width
+            && y >= bounds.y
+            && y <= bounds.y + bounds.height
+    }
+
+    /// Get a cloned copy of the current render snapshot for drawing
+    pub fn get_current_snapshot(&self) -> Option<RenderNode> {
+        self.snapshot.read().unwrap().as_ref().cloned()
     }
 }
 
