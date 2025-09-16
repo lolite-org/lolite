@@ -9,8 +9,9 @@
  * - Proper coordinate calculation and child positioning
  */
 
-use crate::engine::{
-    AlignContent, AlignItems, Engine, FlexDirection, FlexWrap, JustifyContent, Length, Node, Style,
+use crate::{
+    engine::{Engine, Node},
+    style::{AlignContent, AlignItems, FlexDirection, FlexWrap, JustifyContent, Length, Style},
 };
 use std::{cell::RefCell, rc::Rc};
 

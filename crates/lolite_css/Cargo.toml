@@ -7,6 +7,9 @@ edition.workspace = true
 winit = "0.30.8"
 anyhow = "1.0.95"
 skia-safe = "0.87.0"
+lolite_macros = { path = "../lolite_macros" }
+cssparser = "0.35.0"
+parking_lot = "0.12"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 skia-safe = { version = "0.87.0", features = ["d3d"] }
@@ -28,10 +31,6 @@ metal = "0.27"
 objc = "0.2"
 raw-window-handle = "0.6"
 core-graphics-types = "0.1"
-
-lolite_macros = { path = "../lolite_macros" }
-cssparser = "0.35.0"
-parking_lot = "0.12"
 
 [[bin]]
 name = "lolite_css_tester"

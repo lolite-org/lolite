@@ -1,6 +1,8 @@
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::style::{Display, Extend, FlexDirection, Length, Rule, Selector, Style};
+
 fn next_test_id() -> Id {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     Id::from_u64(NEXT.fetch_add(1, Ordering::Relaxed))

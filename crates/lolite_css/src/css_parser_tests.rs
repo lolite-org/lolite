@@ -1,5 +1,5 @@
 use crate::css_parser::parse_css;
-use crate::engine::{Display, Selector};
+use crate::style::{Display, Selector};
 
 #[test]
 fn test_parse_simple_css_document() {

@@ -47,32 +47,32 @@ fn main() -> anyhow::Result<()> {
 
     // Setup windowing callbacks
     let engine_for_draw = engine.clone();
-    let engine_for_click = engine.clone();
+    // let engine_for_click = engine.clone();
 
     let params = Params {
         on_draw: Box::new(move |canvas| {
             if let Some(snapshot) = engine_for_draw.get_current_snapshot() {
-                let mut painter = lolite_css::painter::Painter::new(canvas);
+                let mut painter = lolite_css::Painter::new(canvas);
                 painter.paint(&snapshot);
             }
         }),
-        on_click: Some(Box::new(move |x, y| {
+        on_click: Some(Box::new(move |_x, _y| {
             // Perform hit testing
-            let elements = engine_for_click.find_element_at_position(x, y);
+            // let elements = engine_for_click.find_element_at_position(x, y); // here we should already know which elements we clicked on
 
-            if elements.is_empty() {
-                println!("Click detected on background at ({:.1}, {:.1})", x, y);
-            } else {
-                println!(
-                    "Click detected at ({:.1}, {:.1}) on {} elements:",
-                    x,
-                    y,
-                    elements.len()
-                );
-                for (i, element_id) in elements.iter().enumerate() {
-                    println!("  Level {}: Element ID {:?}", i, element_id.value());
-                }
-            }
+            // if elements.is_empty() {
+            //     println!("Click detected on background at ({:.1}, {:.1})", x, y);
+            // } else {
+            //     println!(
+            //         "Click detected at ({:.1}, {:.1}) on {} elements:",
+            //         x,
+            //         y,
+            //         elements.len()
+            //     );
+            //     for (i, element_id) in elements.iter().enumerate() {
+            //         println!("  Level {}: Element ID {:?}", i, element_id.value());
+            //     }
+            // }
         })),
     };
 
