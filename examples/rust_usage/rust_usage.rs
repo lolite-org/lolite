@@ -1,9 +1,8 @@
-use lolite::{CssEngine, Params};
-use std::cell::RefCell;
+use lolite::Engine;
 
-fn main() -> anyhow::Result<()> {
+fn main() {
     // Create a thread-safe CSS engine
-    let engine = CssEngine::new();
+    let engine = Engine::new();
 
     // Example: Parse CSS from a string
     let css_content = r#"
@@ -45,38 +44,8 @@ fn main() -> anyhow::Result<()> {
     engine.set_attribute(a, "class".to_owned(), "red_box".to_owned());
     engine.set_attribute(b, "class".to_owned(), "green_box".to_owned());
 
-    // Setup windowing callbacks
-    let engine_for_draw = engine.clone();
-    // let engine_for_click = engine.clone();
-
-    let params = Params {
-        on_draw: Box::new(move |canvas| {
-            if let Some(snapshot) = engine_for_draw.get_current_snapshot() {
-                let mut painter = lolite::Painter::new(canvas);
-                painter.paint(&snapshot);
-            }
-        }),
-        on_click: Some(Box::new(move |_x, _y| {
-            // Perform hit testing
-            // let elements = engine_for_click.find_element_at_position(x, y); // here we should already know which elements we clicked on
-
-            // if elements.is_empty() {
-            //     println!("Click detected on background at ({:.1}, {:.1})", x, y);
-            // } else {
-            //     println!(
-            //         "Click detected at ({:.1}, {:.1}) on {} elements:",
-            //         x,
-            //         y,
-            //         elements.len()
-            //     );
-            //     for (i, element_id) in elements.iter().enumerate() {
-            //         println!("  Level {}: Element ID {:?}", i, element_id.value());
-            //     }
-            // }
-        })),
-    };
-
-    lolite::run(&RefCell::new(params))?;
-
-    Ok(())
+    // Run
+    if let Err(e) = engine.run() {
+        eprintln!("Error encountered: {:?}", e);
+    }
 }

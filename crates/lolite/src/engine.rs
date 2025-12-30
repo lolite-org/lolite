@@ -131,6 +131,7 @@ impl Document {
             .flatten()
     }
 
+    #[allow(unused)]
     pub fn root_id(&self) -> Id {
         Id(0)
     }

@@ -1,4 +1,4 @@
-use lolite::{CssEngine, Id};
+use lolite::{Engine, Id};
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
@@ -11,7 +11,7 @@ mod worker_instance;
 /// - Same process: Direct CssEngine usage
 /// - Worker process: Communication through WorkerInstance
 enum EngineMode {
-    SameProcess(Box<CssEngine>),
+    SameProcess(Box<Engine>),
     WorkerProcess(worker_instance::WorkerInstance),
 }
 
@@ -40,7 +40,7 @@ static NEXT_HANDLE: AtomicUsize = AtomicUsize::new(1);
 #[no_mangle]
 pub extern "C" fn lolite_init(use_same_process: bool) -> EngineHandle {
     let engine_mode = if use_same_process {
-        EngineMode::SameProcess(Box::new(CssEngine::new()))
+        EngineMode::SameProcess(Box::new(Engine::new()))
     } else {
         match worker_instance::WorkerInstance::new() {
             Ok(worker) => EngineMode::WorkerProcess(worker),

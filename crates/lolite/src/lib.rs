@@ -10,36 +10,36 @@ mod windowing;
 mod css_parser_tests;
 
 use css_parser::parse_css;
+pub use engine::Id;
 use engine::RenderNode;
+use painter::Painter;
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::sync::{
     mpsc::{self, Receiver, Sender},
     Arc, RwLock,
 };
 use std::thread;
 use std::time::{Duration, Instant};
+use windowing::{run, Params};
 
-pub use engine::Id;
-pub use painter::Painter;
-pub use windowing::{run, run_with_backend, Params};
-
-/// Thread-safe CSS engine proxy that communicates with a dedicated data thread
-pub struct CssEngine {
+#[derive(Clone)]
+pub struct Engine {
     sender: Sender<Command>,
     snapshot: Arc<RwLock<Option<RenderNode>>>,
     root_id: Id,
     next_id: Arc<AtomicU64>,
+    running: Arc<Mutex<()>>,
 }
 
-enum Command {
-    AddStylesheet(String),
-    CreateNode(Id, Option<String>),
-    SetParent(Id, Id),
-    SetAttribute(Id, String, String),
-    Layout,
+#[derive(Debug)]
+pub enum RunError {
+    AlreadyRunning,
+    UnknownError(String),
 }
 
-impl CssEngine {
+impl Engine {
     /// Create a new CSS engine instance
     pub fn new() -> Self {
         let (tx, rx): (Sender<Command>, Receiver<Command>) = mpsc::channel();
@@ -55,7 +55,49 @@ impl CssEngine {
             root_id: Id::from_u64(0),
             // 0 is reserved for root
             next_id: Arc::new(AtomicU64::new(1)),
+            running: Arc::new(Mutex::new(())),
         }
+    }
+
+    pub fn run(&self) -> Result<(), RunError> {
+        // only allow running once
+        let _lock = self
+            .running
+            .try_lock()
+            .map_err(|_| RunError::AlreadyRunning)?;
+
+        let this = self.clone();
+
+        let params = Params {
+            on_draw: Box::new(move |canvas| {
+                if let Some(snapshot) = this.get_current_snapshot() {
+                    let mut painter = Painter::new(canvas);
+                    painter.paint(&snapshot);
+                }
+            }),
+            on_click: Some(Box::new(move |_x, _y| {
+                // Perform hit testing
+                // let elements = engine_for_click.find_element_at_position(x, y); // here we should already know which elements we clicked on
+
+                // if elements.is_empty() {
+                //     println!("Click detected on background at ({:.1}, {:.1})", x, y);
+                // } else {
+                //     println!(
+                //         "Click detected at ({:.1}, {:.1}) on {} elements:",
+                //         x,
+                //         y,
+                //         elements.len()
+                //     );
+                //     for (i, element_id) in elements.iter().enumerate() {
+                //         println!("  Level {}: Element ID {:?}", i, element_id.value());
+                //     }
+                // }
+            })),
+        };
+
+        run(&RefCell::new(params)).map_err(|err| RunError::UnknownError(err.to_string()))?;
+
+        Ok(())
     }
 
     /// Add a CSS stylesheet
@@ -193,24 +235,19 @@ impl CssEngine {
     }
 }
 
-impl Clone for CssEngine {
-    fn clone(&self) -> Self {
-        Self {
-            sender: self.sender.clone(),
-            snapshot: Arc::clone(&self.snapshot),
-            root_id: self.root_id,
-            next_id: Arc::clone(&self.next_id),
-        }
-    }
-}
-
-impl Default for CssEngine {
+impl Default for Engine {
     fn default() -> Self {
         Self::new()
     }
 }
 
-// No Drop needed; when all senders are dropped, data thread exits on channel disconnect
+enum Command {
+    AddStylesheet(String),
+    CreateNode(Id, Option<String>),
+    SetParent(Id, Id),
+    SetAttribute(Id, String, String),
+    Layout,
+}
 
 fn data_thread(rx: Receiver<Command>, snapshot: Arc<RwLock<Option<RenderNode>>>) {
     let mut eng = engine::Engine::new();

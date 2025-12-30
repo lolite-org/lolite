@@ -110,9 +110,7 @@ fn run_with_backend_impl<'a, B: RenderingBackend<'a>>(
         params,
     };
 
-    event_loop
-        .run_app(&mut application)
-        .expect("Failed to run event loop");
+    event_loop.run_app(&mut application)?;
 
     Ok(())
 }
