@@ -1,7 +1,8 @@
 mod backend;
+mod commands;
 mod css_parser;
-mod engine;
 mod flex_layout;
+mod layout;
 mod painter;
 mod style;
 mod windowing;
@@ -9,20 +10,35 @@ mod windowing;
 #[cfg(test)]
 mod css_parser_tests;
 
-use css_parser::parse_css;
-pub use engine::Id;
-use engine::RenderNode;
+use commands::Command;
+use layout::RenderNode;
 use painter::Painter;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::sync::{
-    mpsc::{self, Receiver, Sender},
+    mpsc::{channel, Receiver, Sender},
     Arc, RwLock,
 };
 use std::thread;
-use std::time::{Duration, Instant};
 use windowing::{run, Params};
+
+#[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
+pub struct Id(u64);
+
+impl Id {
+    pub fn value(&self) -> u64 {
+        self.0
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        self.0
+    }
+
+    pub fn from_u64(value: u64) -> Self {
+        Id(value)
+    }
+}
 
 #[derive(Clone)]
 pub struct Engine {
@@ -42,12 +58,12 @@ pub enum RunError {
 impl Engine {
     /// Create a new CSS engine instance
     pub fn new() -> Self {
-        let (tx, rx): (Sender<Command>, Receiver<Command>) = mpsc::channel();
+        let (tx, rx): (Sender<Command>, Receiver<Command>) = channel();
         let snapshot: Arc<RwLock<Option<RenderNode>>> = Arc::new(RwLock::new(None));
         let snapshot_for_thread = Arc::clone(&snapshot);
 
-        // Spawn data thread owning the mutable engine
-        thread::spawn(move || data_thread(rx, snapshot_for_thread));
+        // Spawn thread to handle the commands without blocking the main thread
+        thread::spawn(move || commands::handle_commands(rx, snapshot_for_thread));
 
         Self {
             sender: tx,
@@ -59,6 +75,7 @@ impl Engine {
         }
     }
 
+    // Run the event loop
     pub fn run(&self) -> Result<(), RunError> {
         // only allow running once
         let _lock = self
@@ -136,11 +153,6 @@ impl Engine {
     /// Get the root node ID of the document
     pub fn root_id(&self) -> Id {
         self.root_id
-    }
-
-    /// Perform layout calculation
-    pub fn layout(&self) {
-        self.sender.send(Command::Layout).expect("data thread down");
     }
 
     // /// Find elements at a specific position (for hit testing)
@@ -230,7 +242,7 @@ impl Engine {
     // }
 
     /// Get a cloned copy of the current render snapshot for drawing
-    pub fn get_current_snapshot(&self) -> Option<RenderNode> {
+    fn get_current_snapshot(&self) -> Option<RenderNode> {
         self.snapshot.read().unwrap().as_ref().cloned()
     }
 }
@@ -238,89 +250,5 @@ impl Engine {
 impl Default for Engine {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-enum Command {
-    AddStylesheet(String),
-    CreateNode(Id, Option<String>),
-    SetParent(Id, Id),
-    SetAttribute(Id, String, String),
-    Layout,
-}
-
-fn data_thread(rx: Receiver<Command>, snapshot: Arc<RwLock<Option<RenderNode>>>) {
-    let mut eng = engine::Engine::new();
-    let mut deadline: Option<Instant> = None;
-
-    loop {
-        // Determine timeout based on debounce deadline
-        let timeout = match deadline {
-            Some(dl) => {
-                let now = Instant::now();
-                if dl <= now {
-                    // Deadline expired: run layout now
-                    eng.layout();
-                    let root = eng.document.root_node();
-                    let snap = engine::build_render_tree(root);
-                    *snapshot.write().unwrap() = Some(snap);
-                    deadline = None;
-                    // After layout, continue to next iteration
-                    continue;
-                } else {
-                    dl - now
-                }
-            }
-            None => Duration::from_millis(u64::MAX / 2), // effectively wait forever
-        };
-
-        match rx.recv_timeout(timeout) {
-            Ok(cmd) => match cmd {
-                Command::AddStylesheet(css) => match parse_css(&css) {
-                    Ok(sheet) => {
-                        for rule in sheet.rules {
-                            eng.style_sheet.add_rule(rule);
-                        }
-                        if deadline.is_none() {
-                            deadline = Some(Instant::now() + Duration::from_millis(100));
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to parse CSS: {}", e);
-                    }
-                },
-                Command::CreateNode(id, text) => {
-                    eng.document.create_node(id, text);
-                    if deadline.is_none() {
-                        deadline = Some(Instant::now() + Duration::from_millis(100));
-                    }
-                }
-                Command::SetParent(p, c) => {
-                    eng.document.set_parent(p, c).expect("data thread down");
-                    if deadline.is_none() {
-                        deadline = Some(Instant::now() + Duration::from_millis(100));
-                    }
-                }
-                Command::SetAttribute(id, k, v) => {
-                    eng.document.set_attribute(id, k, v);
-                    if deadline.is_none() {
-                        deadline = Some(Instant::now() + Duration::from_millis(100));
-                    }
-                }
-                Command::Layout => {
-                    // Immediate layout flush
-                    eng.layout();
-                    let root = eng.document.root_node();
-                    let snap = engine::build_render_tree(root);
-                    *snapshot.write().unwrap() = Some(snap);
-                    deadline = None;
-                }
-            },
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                // handled at top loop when checking expired deadline
-                continue;
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-        }
     }
 }

@@ -11,14 +11,14 @@ fn next_test_id() -> Id {
     Id::from_u64(NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
-// Helper function to create a basic engine setup
-fn create_test_engine() -> Engine {
-    Engine::new()
+// Helper function to create a basic ctx setup
+fn create_ctx() -> LayoutContext {
+    LayoutContext::new()
 }
 
 // Helper function to create a container with specified flex alignment properties
 fn create_flex_container_with_alignment(
-    engine: &mut Engine,
+    ctx: &mut LayoutContext,
     flex_direction: Option<FlexDirection>,
     justify_content: Option<JustifyContent>,
     align_items: Option<AlignItems>,
@@ -26,11 +26,11 @@ fn create_flex_container_with_alignment(
     width: Option<f64>,
     height: Option<f64>,
 ) -> Id {
-    let container_id = engine.document.create_node(next_test_id(), None);
+    let container_id = ctx.document.create_node(next_test_id(), None);
 
     // Add a CSS rule for the flex container
     let class_name = format!("flex_container_{}", container_id.0);
-    engine.style_sheet.add_rule(Rule {
+    ctx.style_sheet.add_rule(Rule {
         selector: Selector::Class(class_name.clone()),
         declarations: vec![Style {
             display: Display::Flex,
@@ -44,21 +44,20 @@ fn create_flex_container_with_alignment(
         }],
     });
 
-    engine
-        .document
+    ctx.document
         .set_attribute(container_id, "class".to_owned(), class_name);
     container_id
 }
 
 // Helper function to create a flex item with specified dimensions
-fn create_flex_item(engine: &mut Engine, width: f64, height: f64) -> Id {
-    let item_id = engine
+fn create_flex_item(ctx: &mut LayoutContext, width: f64, height: f64) -> Id {
+    let item_id = ctx
         .document
         .create_node(next_test_id(), Some("item".to_string()));
 
     // Add a CSS rule for the flex item
     let class_name = format!("flex_item_{}", item_id.0);
-    engine.style_sheet.add_rule(Rule {
+    ctx.style_sheet.add_rule(Rule {
         selector: Selector::Class(class_name.clone()),
         declarations: vec![Style {
             width: Some(Length::Px(width)),
@@ -67,15 +66,14 @@ fn create_flex_item(engine: &mut Engine, width: f64, height: f64) -> Id {
         }],
     });
 
-    engine
-        .document
+    ctx.document
         .set_attribute(item_id, "class".to_owned(), class_name);
     item_id
 }
 
 // Helper function to get node bounds after layout
-fn get_bounds(engine: &Engine, node_id: Id) -> (f64, f64, f64, f64) {
-    let node = engine.document.nodes.get(&node_id).unwrap();
+fn get_bounds(ctx: &LayoutContext, node_id: Id) -> (f64, f64, f64, f64) {
+    let node = ctx.document.nodes.get(&node_id).unwrap();
     let bounds = &node.borrow().layout.bounds;
     (bounds.x, bounds.y, bounds.width, bounds.height)
 }
@@ -84,12 +82,12 @@ fn get_bounds(engine: &Engine, node_id: Id) -> (f64, f64, f64, f64) {
 
 #[test]
 fn test_justify_content_flex_start() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a flex container with justify-content: flex-start
     let container = create_flex_container_with_alignment(
-        &mut engine,
+        &mut ctx,
         Some(FlexDirection::Row),
         Some(JustifyContent::FlexStart),
         Some(AlignItems::FlexStart), // Preserve original dimensions
@@ -97,21 +95,21 @@ fn test_justify_content_flex_start() {
         Some(300.0),
         Some(100.0),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create two flex items
-    let item1 = create_flex_item(&mut engine, 50.0, 30.0);
-    let item2 = create_flex_item(&mut engine, 60.0, 40.0);
+    let item1 = create_flex_item(&mut ctx, 50.0, 30.0);
+    let item2 = create_flex_item(&mut ctx, 60.0, 40.0);
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // In flex-start, items should be at the start of the main axis
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Verify dimensions are preserved
     assert_eq!(w1, 50.0);
@@ -128,12 +126,12 @@ fn test_justify_content_flex_start() {
 
 #[test]
 fn test_justify_content_flex_end() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a flex container with justify-content: flex-end
     let container = create_flex_container_with_alignment(
-        &mut engine,
+        &mut ctx,
         Some(FlexDirection::Row),
         Some(JustifyContent::FlexEnd),
         Some(AlignItems::FlexStart), // Preserve original dimensions
@@ -141,21 +139,21 @@ fn test_justify_content_flex_end() {
         Some(300.0),
         Some(100.0),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create two flex items
-    let item1 = create_flex_item(&mut engine, 50.0, 30.0);
-    let item2 = create_flex_item(&mut engine, 60.0, 40.0);
+    let item1 = create_flex_item(&mut ctx, 50.0, 30.0);
+    let item2 = create_flex_item(&mut ctx, 60.0, 40.0);
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // In flex-end, items should be at the end of the main axis
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Verify dimensions are preserved
     assert_eq!(w1, 50.0);
@@ -175,12 +173,12 @@ fn test_justify_content_flex_end() {
 
 #[test]
 fn test_justify_content_center() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a flex container with justify-content: center
     let container = create_flex_container_with_alignment(
-        &mut engine,
+        &mut ctx,
         Some(FlexDirection::Row),
         Some(JustifyContent::Center),
         Some(AlignItems::FlexStart), // Preserve original dimensions
@@ -188,21 +186,21 @@ fn test_justify_content_center() {
         Some(300.0),
         Some(100.0),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create two flex items
-    let item1 = create_flex_item(&mut engine, 50.0, 30.0);
-    let item2 = create_flex_item(&mut engine, 60.0, 40.0);
+    let item1 = create_flex_item(&mut ctx, 50.0, 30.0);
+    let item2 = create_flex_item(&mut ctx, 60.0, 40.0);
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // In center, items should be centered on the main axis
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Verify dimensions are preserved
     assert_eq!(w1, 50.0);
@@ -223,12 +221,12 @@ fn test_justify_content_center() {
 
 #[test]
 fn test_justify_content_space_between() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a flex container with justify-content: space-between
     let container = create_flex_container_with_alignment(
-        &mut engine,
+        &mut ctx,
         Some(FlexDirection::Row),
         Some(JustifyContent::SpaceBetween),
         Some(AlignItems::FlexStart), // Preserve original dimensions
@@ -236,24 +234,24 @@ fn test_justify_content_space_between() {
         Some(300.0),
         Some(100.0),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create three flex items for better space-between testing
-    let item1 = create_flex_item(&mut engine, 50.0, 30.0);
-    let item2 = create_flex_item(&mut engine, 60.0, 40.0);
-    let item3 = create_flex_item(&mut engine, 40.0, 35.0);
+    let item1 = create_flex_item(&mut ctx, 50.0, 30.0);
+    let item2 = create_flex_item(&mut ctx, 60.0, 40.0);
+    let item3 = create_flex_item(&mut ctx, 40.0, 35.0);
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
-    engine.document.set_parent(container, item3).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item3).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // In space-between, items should be distributed with equal space between them
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
-    let (x3, y3, w3, h3) = get_bounds(&engine, item3);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
+    let (x3, y3, w3, h3) = get_bounds(&ctx, item3);
 
     // Verify dimensions are preserved
     assert_eq!(w1, 50.0);
@@ -282,12 +280,12 @@ fn test_justify_content_space_between() {
 
 #[test]
 fn test_align_items_flex_start() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a flex container with align-items: flex-start
     let container = create_flex_container_with_alignment(
-        &mut engine,
+        &mut ctx,
         Some(FlexDirection::Row),
         None,
         Some(AlignItems::FlexStart),
@@ -295,21 +293,21 @@ fn test_align_items_flex_start() {
         Some(300.0),
         Some(100.0),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items with different heights
-    let item1 = create_flex_item(&mut engine, 50.0, 30.0);
-    let item2 = create_flex_item(&mut engine, 60.0, 50.0);
+    let item1 = create_flex_item(&mut ctx, 50.0, 30.0);
+    let item2 = create_flex_item(&mut ctx, 60.0, 50.0);
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // In align-items: flex-start, items should align to the start of cross axis
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Verify dimensions are preserved
     assert_eq!(w1, 50.0);
@@ -328,12 +326,12 @@ fn test_align_items_flex_start() {
 
 #[test]
 fn test_align_items_center() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a flex container with align-items: center
     let container = create_flex_container_with_alignment(
-        &mut engine,
+        &mut ctx,
         Some(FlexDirection::Row),
         None,
         Some(AlignItems::Center),
@@ -341,21 +339,21 @@ fn test_align_items_center() {
         Some(300.0),
         Some(100.0),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items with different heights
-    let item1 = create_flex_item(&mut engine, 50.0, 30.0);
-    let item2 = create_flex_item(&mut engine, 60.0, 50.0);
+    let item1 = create_flex_item(&mut ctx, 50.0, 30.0);
+    let item2 = create_flex_item(&mut ctx, 60.0, 50.0);
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // In align-items: center, items should be centered on cross axis
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Verify dimensions are preserved
     assert_eq!(w1, 50.0);
@@ -376,12 +374,12 @@ fn test_align_items_center() {
 
 #[test]
 fn test_align_content_flex_start() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a flex container with wrap and align-content: flex-start
     let container = create_flex_container_with_alignment(
-        &mut engine,
+        &mut ctx,
         Some(FlexDirection::Row),
         None,
         None,
@@ -389,30 +387,30 @@ fn test_align_content_flex_start() {
         Some(200.0), // Small width to force wrapping
         Some(150.0),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Add wrapping to the container
-    let container_node = engine.document.nodes.get(&container).unwrap();
+    let container_node = ctx.document.nodes.get(&container).unwrap();
     let mut style = container_node.borrow().layout.style.as_ref().clone();
     style.flex_wrap = Some(FlexWrap::Wrap);
     container_node.borrow_mut().layout.style = Arc::new(style);
 
     // Create items that will wrap to multiple lines
-    let item1 = create_flex_item(&mut engine, 100.0, 30.0);
-    let item2 = create_flex_item(&mut engine, 100.0, 30.0);
-    let item3 = create_flex_item(&mut engine, 100.0, 30.0);
+    let item1 = create_flex_item(&mut ctx, 100.0, 30.0);
+    let item2 = create_flex_item(&mut ctx, 100.0, 30.0);
+    let item3 = create_flex_item(&mut ctx, 100.0, 30.0);
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
-    engine.document.set_parent(container, item3).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item3).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // In align-content: flex-start, lines should start at the beginning of cross axis
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
-    let (x3, y3, w3, h3) = get_bounds(&engine, item3);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
+    let (x3, y3, w3, h3) = get_bounds(&ctx, item3);
 
     // Verify dimensions are preserved
     assert_eq!(w1, 100.0);
@@ -436,12 +434,12 @@ fn test_align_content_flex_start() {
 // Basic setup test to ensure alignment containers work
 #[test]
 fn test_basic_alignment_setup() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container with all alignment properties
     let container = create_flex_container_with_alignment(
-        &mut engine,
+        &mut ctx,
         Some(FlexDirection::Row),
         Some(JustifyContent::FlexStart),
         Some(AlignItems::FlexStart),
@@ -449,17 +447,17 @@ fn test_basic_alignment_setup() {
         Some(200.0),
         Some(100.0),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create one flex item
-    let item = create_flex_item(&mut engine, 50.0, 30.0);
-    engine.document.set_parent(container, item).unwrap();
+    let item = create_flex_item(&mut ctx, 50.0, 30.0);
+    ctx.document.set_parent(container, item).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify the layout runs without errors
-    let (x, y, w, h) = get_bounds(&engine, item);
+    let (x, y, w, h) = get_bounds(&ctx, item);
 
     // Basic assertions
     assert_eq!(w, 50.0);

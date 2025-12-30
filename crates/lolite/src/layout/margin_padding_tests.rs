@@ -8,24 +8,24 @@ fn next_test_id() -> Id {
     Id::from_u64(NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
-// Helper function to create a basic engine setup
-fn create_test_engine() -> Engine {
-    Engine::new()
+// Helper function to create a basic ctx setup
+fn create_ctx() -> LayoutContext {
+    LayoutContext::new()
 }
 
 // Helper function to create a container with specified properties
 fn create_container(
-    engine: &mut Engine,
+    ctx: &mut LayoutContext,
     width: Option<f64>,
     height: Option<f64>,
     margin: Option<Extend>,
     padding: Option<Extend>,
 ) -> Id {
-    let container_id = engine.document.create_node(next_test_id(), None);
+    let container_id = ctx.document.create_node(next_test_id(), None);
 
     // Add a CSS rule for the container
     let class_name = format!("container_{}", container_id.0);
-    engine.style_sheet.add_rule(Rule {
+    ctx.style_sheet.add_rule(Rule {
         selector: Selector::Class(class_name.clone()),
         declarations: vec![Style {
             display: Display::Flex,
@@ -38,27 +38,26 @@ fn create_container(
         }],
     });
 
-    engine
-        .document
+    ctx.document
         .set_attribute(container_id, "class".to_owned(), class_name);
     container_id
 }
 
 // Helper function to create an item with margin and padding
 fn create_item_with_spacing(
-    engine: &mut Engine,
+    ctx: &mut LayoutContext,
     width: f64,
     height: f64,
     margin: Option<Extend>,
     padding: Option<Extend>,
 ) -> Id {
-    let item_id = engine
+    let item_id = ctx
         .document
         .create_node(next_test_id(), Some("item".to_string()));
 
     // Add a CSS rule for the item
     let class_name = format!("item_{}", item_id.0);
-    engine.style_sheet.add_rule(Rule {
+    ctx.style_sheet.add_rule(Rule {
         selector: Selector::Class(class_name.clone()),
         declarations: vec![Style {
             width: Some(Length::Px(width)),
@@ -69,20 +68,19 @@ fn create_item_with_spacing(
         }],
     });
 
-    engine
-        .document
+    ctx.document
         .set_attribute(item_id, "class".to_owned(), class_name);
     item_id
 }
 
 // Helper function to create a simple item without spacing
-fn create_item(engine: &mut Engine, width: f64, height: f64) -> Id {
-    create_item_with_spacing(engine, width, height, None, None)
+fn create_item(ctx: &mut LayoutContext, width: f64, height: f64) -> Id {
+    create_item_with_spacing(ctx, width, height, None, None)
 }
 
 // Helper function to get node bounds after layout
-fn get_bounds(engine: &Engine, node_id: Id) -> (f64, f64, f64, f64) {
-    let node = engine.document.nodes.get(&node_id).unwrap();
+fn get_bounds(ctx: &LayoutContext, node_id: Id) -> (f64, f64, f64, f64) {
+    let node = ctx.document.nodes.get(&node_id).unwrap();
     let bounds = &node.borrow().layout.bounds;
     (bounds.x, bounds.y, bounds.width, bounds.height)
 }
@@ -111,23 +109,22 @@ fn asymmetric_spacing(top: f64, right: f64, bottom: f64, left: f64) -> Extend {
 
 #[test]
 fn test_margin_uniform() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container
-    let container = create_container(&mut engine, Some(300.0), Some(200.0), None, None);
-    engine.document.set_parent(root, container).unwrap();
+    let container = create_container(&mut ctx, Some(300.0), Some(200.0), None, None);
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create an item with uniform 20px margin
-    let item =
-        create_item_with_spacing(&mut engine, 100.0, 50.0, Some(uniform_spacing(20.0)), None);
-    engine.document.set_parent(container, item).unwrap();
+    let item = create_item_with_spacing(&mut ctx, 100.0, 50.0, Some(uniform_spacing(20.0)), None);
+    ctx.document.set_parent(container, item).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x, y, w, h) = get_bounds(&engine, item);
+    let (x, y, w, h) = get_bounds(&ctx, item);
 
     // Item should be positioned with margin offset
     assert_eq!(x, 20.0); // left margin
@@ -140,28 +137,28 @@ fn test_margin_uniform() {
 
 #[test]
 fn test_margin_asymmetric() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container
-    let container = create_container(&mut engine, Some(300.0), Some(200.0), None, None);
-    engine.document.set_parent(root, container).unwrap();
+    let container = create_container(&mut ctx, Some(300.0), Some(200.0), None, None);
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create an item with asymmetric margin: top=10, right=15, bottom=20, left=25
     let item = create_item_with_spacing(
-        &mut engine,
+        &mut ctx,
         100.0,
         50.0,
         Some(asymmetric_spacing(10.0, 15.0, 20.0, 25.0)),
         None,
     );
-    engine.document.set_parent(container, item).unwrap();
+    ctx.document.set_parent(container, item).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x, y, w, h) = get_bounds(&engine, item);
+    let (x, y, w, h) = get_bounds(&ctx, item);
 
     // Item should be positioned with margin offset
     assert_eq!(x, 25.0); // left margin
@@ -174,36 +171,35 @@ fn test_margin_asymmetric() {
 
 #[test]
 fn test_margin_multiple_items_horizontal() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container
-    let container = create_container(&mut engine, Some(400.0), Some(200.0), None, None);
-    engine.document.set_parent(root, container).unwrap();
+    let container = create_container(&mut ctx, Some(400.0), Some(200.0), None, None);
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items with different margins
-    let item1 =
-        create_item_with_spacing(&mut engine, 80.0, 50.0, Some(uniform_spacing(10.0)), None);
+    let item1 = create_item_with_spacing(&mut ctx, 80.0, 50.0, Some(uniform_spacing(10.0)), None);
     let item2 = create_item_with_spacing(
-        &mut engine,
+        &mut ctx,
         60.0,
         50.0,
         Some(asymmetric_spacing(5.0, 20.0, 5.0, 15.0)),
         None,
     );
-    let item3 = create_item(&mut engine, 70.0, 50.0); // No margin
+    let item3 = create_item(&mut ctx, 70.0, 50.0); // No margin
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
-    engine.document.set_parent(container, item3).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item3).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
-    let (x3, y3, w3, h3) = get_bounds(&engine, item3);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
+    let (x3, y3, w3, h3) = get_bounds(&ctx, item3);
 
     // Verify sizes remain unchanged
     assert_eq!(w1, 80.0);
@@ -226,13 +222,13 @@ fn test_margin_multiple_items_horizontal() {
 
 #[test]
 fn test_margin_column_direction() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container with column direction
-    let container_id = engine.document.create_node(next_test_id(), None);
+    let container_id = ctx.document.create_node(next_test_id(), None);
     let class_name = format!("container_{}", container_id.0);
-    engine.style_sheet.add_rule(Rule {
+    ctx.style_sheet.add_rule(Rule {
         selector: Selector::Class(class_name.clone()),
         declarations: vec![Style {
             display: Display::Flex,
@@ -242,31 +238,29 @@ fn test_margin_column_direction() {
             ..Default::default()
         }],
     });
-    engine
-        .document
+    ctx.document
         .set_attribute(container_id, "class".to_owned(), class_name);
-    engine.document.set_parent(root, container_id).unwrap();
+    ctx.document.set_parent(root, container_id).unwrap();
 
     // Create items with margins
-    let item1 =
-        create_item_with_spacing(&mut engine, 100.0, 60.0, Some(uniform_spacing(15.0)), None);
+    let item1 = create_item_with_spacing(&mut ctx, 100.0, 60.0, Some(uniform_spacing(15.0)), None);
     let item2 = create_item_with_spacing(
-        &mut engine,
+        &mut ctx,
         100.0,
         40.0,
         Some(asymmetric_spacing(20.0, 10.0, 25.0, 5.0)),
         None,
     );
 
-    engine.document.set_parent(container_id, item1).unwrap();
-    engine.document.set_parent(container_id, item2).unwrap();
+    ctx.document.set_parent(container_id, item1).unwrap();
+    ctx.document.set_parent(container_id, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Verify sizes
     assert_eq!(w1, 100.0);
@@ -285,28 +279,28 @@ fn test_margin_column_direction() {
 
 #[test]
 fn test_padding_uniform() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container with padding
     let container = create_container(
-        &mut engine,
+        &mut ctx,
         Some(300.0),
         Some(200.0),
         None,
         Some(uniform_spacing(20.0)),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create an item
-    let item = create_item(&mut engine, 100.0, 50.0);
-    engine.document.set_parent(container, item).unwrap();
+    let item = create_item(&mut ctx, 100.0, 50.0);
+    ctx.document.set_parent(container, item).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning
-    let (x, y, w, h) = get_bounds(&engine, item);
+    let (x, y, w, h) = get_bounds(&ctx, item);
 
     // Item should be positioned inside the padding
     assert_eq!(x, 20.0); // padding-left
@@ -319,28 +313,28 @@ fn test_padding_uniform() {
 
 #[test]
 fn test_padding_asymmetric() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container with asymmetric padding: top=15, right=25, bottom=35, left=45
     let container = create_container(
-        &mut engine,
+        &mut ctx,
         Some(300.0),
         Some(200.0),
         None,
         Some(asymmetric_spacing(15.0, 25.0, 35.0, 45.0)),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create an item
-    let item = create_item(&mut engine, 100.0, 50.0);
-    engine.document.set_parent(container, item).unwrap();
+    let item = create_item(&mut ctx, 100.0, 50.0);
+    ctx.document.set_parent(container, item).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning
-    let (x, y, w, h) = get_bounds(&engine, item);
+    let (x, y, w, h) = get_bounds(&ctx, item);
 
     // Item should be positioned inside the padding
     assert_eq!(x, 45.0); // padding-left
@@ -353,35 +347,35 @@ fn test_padding_asymmetric() {
 
 #[test]
 fn test_padding_multiple_items() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container with padding
     let container = create_container(
-        &mut engine,
+        &mut ctx,
         Some(400.0),
         Some(200.0),
         None,
         Some(uniform_spacing(20.0)),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create multiple items
-    let item1 = create_item(&mut engine, 80.0, 50.0);
-    let item2 = create_item(&mut engine, 60.0, 50.0);
-    let item3 = create_item(&mut engine, 70.0, 50.0);
+    let item1 = create_item(&mut ctx, 80.0, 50.0);
+    let item2 = create_item(&mut ctx, 60.0, 50.0);
+    let item3 = create_item(&mut ctx, 70.0, 50.0);
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
-    engine.document.set_parent(container, item3).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item3).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
-    let (x3, y3, w3, h3) = get_bounds(&engine, item3);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
+    let (x3, y3, w3, h3) = get_bounds(&ctx, item3);
 
     // Verify sizes
     assert_eq!(w1, 80.0);
@@ -404,13 +398,13 @@ fn test_padding_multiple_items() {
 
 #[test]
 fn test_padding_column_direction() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container with column direction and padding
-    let container_id = engine.document.create_node(next_test_id(), None);
+    let container_id = ctx.document.create_node(next_test_id(), None);
     let class_name = format!("container_{}", container_id.0);
-    engine.style_sheet.add_rule(Rule {
+    ctx.style_sheet.add_rule(Rule {
         selector: Selector::Class(class_name.clone()),
         declarations: vec![Style {
             display: Display::Flex,
@@ -421,24 +415,23 @@ fn test_padding_column_direction() {
             ..Default::default()
         }],
     });
-    engine
-        .document
+    ctx.document
         .set_attribute(container_id, "class".to_owned(), class_name);
-    engine.document.set_parent(root, container_id).unwrap();
+    ctx.document.set_parent(root, container_id).unwrap();
 
     // Create items
-    let item1 = create_item(&mut engine, 100.0, 60.0);
-    let item2 = create_item(&mut engine, 100.0, 40.0);
+    let item1 = create_item(&mut ctx, 100.0, 60.0);
+    let item2 = create_item(&mut ctx, 100.0, 40.0);
 
-    engine.document.set_parent(container_id, item1).unwrap();
-    engine.document.set_parent(container_id, item2).unwrap();
+    ctx.document.set_parent(container_id, item1).unwrap();
+    ctx.document.set_parent(container_id, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Verify sizes
     assert_eq!(w1, 100.0);
@@ -457,29 +450,28 @@ fn test_padding_column_direction() {
 
 #[test]
 fn test_margin_and_padding_combined() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container with padding
     let container = create_container(
-        &mut engine,
+        &mut ctx,
         Some(400.0),
         Some(300.0),
         None,
         Some(uniform_spacing(20.0)),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create an item with margin
-    let item =
-        create_item_with_spacing(&mut engine, 100.0, 50.0, Some(uniform_spacing(15.0)), None);
-    engine.document.set_parent(container, item).unwrap();
+    let item = create_item_with_spacing(&mut ctx, 100.0, 50.0, Some(uniform_spacing(15.0)), None);
+    ctx.document.set_parent(container, item).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning
-    let (x, y, w, h) = get_bounds(&engine, item);
+    let (x, y, w, h) = get_bounds(&ctx, item);
 
     // Item should be positioned with both container padding and item margin
     assert_eq!(x, 35.0); // container padding-left (20) + item margin-left (15)
@@ -493,43 +485,42 @@ fn test_margin_and_padding_combined() {
 #[ignore]
 #[test]
 fn test_nested_containers_with_spacing() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create outer container with margin and padding
     let outer_container = create_container(
-        &mut engine,
+        &mut ctx,
         Some(400.0),
         Some(300.0),
         Some(uniform_spacing(10.0)), // margin
         Some(uniform_spacing(15.0)), // padding
     );
-    engine.document.set_parent(root, outer_container).unwrap();
+    ctx.document.set_parent(root, outer_container).unwrap();
 
     // Create inner container with margin and padding
     let inner_container = create_container(
-        &mut engine,
+        &mut ctx,
         Some(200.0),
         Some(150.0),
         Some(uniform_spacing(5.0)),  // margin
         Some(uniform_spacing(20.0)), // padding
     );
-    engine
-        .document
+    ctx.document
         .set_parent(outer_container, inner_container)
         .unwrap();
 
     // Create an item
-    let item = create_item(&mut engine, 80.0, 40.0);
-    engine.document.set_parent(inner_container, item).unwrap();
+    let item = create_item(&mut ctx, 80.0, 40.0);
+    ctx.document.set_parent(inner_container, item).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning
-    let (outer_x, outer_y, outer_w, outer_h) = get_bounds(&engine, outer_container);
-    let (inner_x, inner_y, inner_w, inner_h) = get_bounds(&engine, inner_container);
-    let (item_x, item_y, item_w, item_h) = get_bounds(&engine, item);
+    let (outer_x, outer_y, outer_w, outer_h) = get_bounds(&ctx, outer_container);
+    let (inner_x, inner_y, inner_w, inner_h) = get_bounds(&ctx, inner_container);
+    let (item_x, item_y, item_w, item_h) = get_bounds(&ctx, item);
 
     // Outer container positioning
     assert_eq!(outer_x, 10.0); // margin-left
@@ -552,23 +543,22 @@ fn test_nested_containers_with_spacing() {
 
 #[test]
 fn test_item_with_padding() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container
-    let container = create_container(&mut engine, Some(300.0), Some(200.0), None, None);
-    engine.document.set_parent(root, container).unwrap();
+    let container = create_container(&mut ctx, Some(300.0), Some(200.0), None, None);
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create an item with padding (this should affect the item's content area)
-    let item =
-        create_item_with_spacing(&mut engine, 100.0, 50.0, None, Some(uniform_spacing(10.0)));
-    engine.document.set_parent(container, item).unwrap();
+    let item = create_item_with_spacing(&mut ctx, 100.0, 50.0, None, Some(uniform_spacing(10.0)));
+    ctx.document.set_parent(container, item).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x, y, w, h) = get_bounds(&engine, item);
+    let (x, y, w, h) = get_bounds(&ctx, item);
 
     // Item should be positioned normally
     assert_eq!(x, 0.0);
@@ -584,38 +574,38 @@ fn test_item_with_padding() {
 
 #[test]
 fn test_margin_collapse_prevention() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container
-    let container = create_container(&mut engine, Some(400.0), Some(200.0), None, None);
-    engine.document.set_parent(root, container).unwrap();
+    let container = create_container(&mut ctx, Some(400.0), Some(200.0), None, None);
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create two adjacent items with margins
     let item1 = create_item_with_spacing(
-        &mut engine,
+        &mut ctx,
         100.0,
         50.0,
         Some(asymmetric_spacing(10.0, 15.0, 20.0, 5.0)), // bottom margin: 20px
         None,
     );
     let item2 = create_item_with_spacing(
-        &mut engine,
+        &mut ctx,
         100.0,
         50.0,
         Some(asymmetric_spacing(25.0, 10.0, 15.0, 8.0)), // top margin: 25px
         None,
     );
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Verify sizes
     assert_eq!(w1, 100.0);

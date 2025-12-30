@@ -8,23 +8,23 @@ fn next_test_id() -> Id {
     Id::from_u64(NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
-// Helper function to create a basic engine setup
-fn create_test_engine() -> Engine {
-    Engine::new()
+// Helper function to create a basic ctx setup
+fn create_ctx() -> LayoutContext {
+    LayoutContext::new()
 }
 
 // Helper function to create a flex container with specified properties
 fn create_flex_container(
-    engine: &mut Engine,
+    ctx: &mut LayoutContext,
     flex_direction: Option<FlexDirection>,
     width: Option<f64>,
     height: Option<f64>,
 ) -> Id {
-    let container_id = engine.document.create_node(next_test_id(), None);
+    let container_id = ctx.document.create_node(next_test_id(), None);
 
     // Add a CSS rule for the flex container
     let class_name = format!("flex_container_{}", container_id.0);
-    engine.style_sheet.add_rule(Rule {
+    ctx.style_sheet.add_rule(Rule {
         selector: Selector::Class(class_name.clone()),
         declarations: vec![Style {
             display: Display::Flex,
@@ -35,28 +35,27 @@ fn create_flex_container(
         }],
     });
 
-    engine
-        .document
+    ctx.document
         .set_attribute(container_id, "class".to_owned(), class_name);
     container_id
 }
 
 // Helper function to create a flex item with flex properties
 fn create_flex_item_with_flex(
-    engine: &mut Engine,
+    ctx: &mut LayoutContext,
     width: Option<f64>,
     height: Option<f64>,
     flex_grow: Option<f64>,
     flex_shrink: Option<f64>,
     flex_basis: Option<Length>,
 ) -> Id {
-    let item_id = engine
+    let item_id = ctx
         .document
         .create_node(next_test_id(), Some("item".to_string()));
 
     // Add a CSS rule for the flex item
     let class_name = format!("flex_item_{}", item_id.0);
-    engine.style_sheet.add_rule(Rule {
+    ctx.style_sheet.add_rule(Rule {
         selector: Selector::Class(class_name.clone()),
         declarations: vec![Style {
             width: width.map(Length::Px),
@@ -68,20 +67,19 @@ fn create_flex_item_with_flex(
         }],
     });
 
-    engine
-        .document
+    ctx.document
         .set_attribute(item_id, "class".to_owned(), class_name);
     item_id
 }
 
 // Helper function to create a simple flex item
-fn create_flex_item(engine: &mut Engine, width: f64, height: f64) -> Id {
-    create_flex_item_with_flex(engine, Some(width), Some(height), None, None, None)
+fn create_flex_item(ctx: &mut LayoutContext, width: f64, height: f64) -> Id {
+    create_flex_item_with_flex(ctx, Some(width), Some(height), None, None, None)
 }
 
 // Helper function to get node bounds after layout
-fn get_bounds(engine: &Engine, node_id: Id) -> (f64, f64, f64, f64) {
-    let node = engine.document.nodes.get(&node_id).unwrap();
+fn get_bounds(ctx: &LayoutContext, node_id: Id) -> (f64, f64, f64, f64) {
+    let node = ctx.document.nodes.get(&node_id).unwrap();
     let bounds = &node.borrow().layout.bounds;
     (bounds.x, bounds.y, bounds.width, bounds.height)
 }
@@ -90,32 +88,27 @@ fn get_bounds(engine: &Engine, node_id: Id) -> (f64, f64, f64, f64) {
 
 #[test]
 fn test_flex_grow_basic() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a 300px wide container
-    let container = create_flex_container(
-        &mut engine,
-        Some(FlexDirection::Row),
-        Some(300.0),
-        Some(100.0),
-    );
-    engine.document.set_parent(root, container).unwrap();
+    let container =
+        create_flex_container(&mut ctx, Some(FlexDirection::Row), Some(300.0), Some(100.0));
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items: one with flex-grow: 1, one without
-    let item1 =
-        create_flex_item_with_flex(&mut engine, Some(50.0), Some(30.0), Some(1.0), None, None);
-    let item2 = create_flex_item(&mut engine, 50.0, 30.0);
+    let item1 = create_flex_item_with_flex(&mut ctx, Some(50.0), Some(30.0), Some(1.0), None, None);
+    let item2 = create_flex_item(&mut ctx, 50.0, 30.0);
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Item2 should keep its original width (50px)
     assert_eq!(w2, 50.0);
@@ -134,36 +127,30 @@ fn test_flex_grow_basic() {
 
 #[test]
 fn test_flex_grow_multiple_items() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a 400px wide container
-    let container = create_flex_container(
-        &mut engine,
-        Some(FlexDirection::Row),
-        Some(400.0),
-        Some(100.0),
-    );
-    engine.document.set_parent(root, container).unwrap();
+    let container =
+        create_flex_container(&mut ctx, Some(FlexDirection::Row), Some(400.0), Some(100.0));
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items with different flex-grow values
-    let item1 =
-        create_flex_item_with_flex(&mut engine, Some(50.0), Some(30.0), Some(1.0), None, None);
-    let item2 =
-        create_flex_item_with_flex(&mut engine, Some(50.0), Some(30.0), Some(2.0), None, None);
-    let item3 = create_flex_item(&mut engine, 50.0, 30.0); // No flex-grow
+    let item1 = create_flex_item_with_flex(&mut ctx, Some(50.0), Some(30.0), Some(1.0), None, None);
+    let item2 = create_flex_item_with_flex(&mut ctx, Some(50.0), Some(30.0), Some(2.0), None, None);
+    let item3 = create_flex_item(&mut ctx, 50.0, 30.0); // No flex-grow
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
-    engine.document.set_parent(container, item3).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item3).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
-    let (x3, y3, w3, h3) = get_bounds(&engine, item3);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
+    let (x3, y3, w3, h3) = get_bounds(&ctx, item3);
 
     // Item3 should keep its original width (50px)
     assert_eq!(w3, 50.0);
@@ -191,32 +178,31 @@ fn test_flex_grow_multiple_items() {
 
 #[test]
 fn test_flex_grow_column_direction() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a 400px high container in column direction
     let container = create_flex_container(
-        &mut engine,
+        &mut ctx,
         Some(FlexDirection::Column),
         Some(100.0),
         Some(400.0),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items with flex-grow in column direction
-    let item1 =
-        create_flex_item_with_flex(&mut engine, Some(50.0), Some(50.0), Some(1.0), None, None);
-    let item2 = create_flex_item(&mut engine, 50.0, 50.0); // No flex-grow
+    let item1 = create_flex_item_with_flex(&mut ctx, Some(50.0), Some(50.0), Some(1.0), None, None);
+    let item2 = create_flex_item(&mut ctx, 50.0, 50.0); // No flex-grow
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Item2 should keep its original height (50px)
     assert_eq!(w2, 50.0);
@@ -237,33 +223,29 @@ fn test_flex_grow_column_direction() {
 
 #[test]
 fn test_flex_shrink_basic() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a 200px wide container (smaller than total item width)
-    let container = create_flex_container(
-        &mut engine,
-        Some(FlexDirection::Row),
-        Some(200.0),
-        Some(100.0),
-    );
-    engine.document.set_parent(root, container).unwrap();
+    let container =
+        create_flex_container(&mut ctx, Some(FlexDirection::Row), Some(200.0), Some(100.0));
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items that would overflow: 150px + 150px = 300px > 200px container
     let item1 =
-        create_flex_item_with_flex(&mut engine, Some(150.0), Some(30.0), None, Some(1.0), None);
+        create_flex_item_with_flex(&mut ctx, Some(150.0), Some(30.0), None, Some(1.0), None);
     let item2 =
-        create_flex_item_with_flex(&mut engine, Some(150.0), Some(30.0), None, Some(2.0), None);
+        create_flex_item_with_flex(&mut ctx, Some(150.0), Some(30.0), None, Some(2.0), None);
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Heights should remain unchanged
     assert_eq!(h1, 30.0);
@@ -287,33 +269,33 @@ fn test_flex_shrink_basic() {
 
 #[test]
 fn test_flex_shrink_column_direction() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a 200px high container (smaller than total item height)
     let container = create_flex_container(
-        &mut engine,
+        &mut ctx,
         Some(FlexDirection::Column),
         Some(100.0),
         Some(200.0),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items that would overflow: 150px + 100px = 250px > 200px container
     let item1 =
-        create_flex_item_with_flex(&mut engine, Some(50.0), Some(150.0), None, Some(1.0), None);
+        create_flex_item_with_flex(&mut ctx, Some(50.0), Some(150.0), None, Some(1.0), None);
     let item2 =
-        create_flex_item_with_flex(&mut engine, Some(50.0), Some(100.0), None, Some(1.0), None);
+        create_flex_item_with_flex(&mut ctx, Some(50.0), Some(100.0), None, Some(1.0), None);
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Widths should remain unchanged
     assert_eq!(w1, 50.0);
@@ -339,21 +321,17 @@ fn test_flex_shrink_column_direction() {
 
 #[test]
 fn test_flex_basis_auto() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container
-    let container = create_flex_container(
-        &mut engine,
-        Some(FlexDirection::Row),
-        Some(300.0),
-        Some(100.0),
-    );
-    engine.document.set_parent(root, container).unwrap();
+    let container =
+        create_flex_container(&mut ctx, Some(FlexDirection::Row), Some(300.0), Some(100.0));
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items with flex-basis: auto (should use width/height)
     let item1 = create_flex_item_with_flex(
-        &mut engine,
+        &mut ctx,
         Some(50.0),
         Some(30.0),
         None,
@@ -361,7 +339,7 @@ fn test_flex_basis_auto() {
         Some(Length::Auto),
     );
     let item2 = create_flex_item_with_flex(
-        &mut engine,
+        &mut ctx,
         Some(100.0),
         Some(30.0),
         None,
@@ -369,15 +347,15 @@ fn test_flex_basis_auto() {
         Some(Length::Auto),
     );
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // With flex-basis: auto, items should use their width values
     assert_eq!(w1, 50.0);
@@ -396,21 +374,17 @@ fn test_flex_basis_auto() {
 
 #[test]
 fn test_flex_basis_fixed_size() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container
-    let container = create_flex_container(
-        &mut engine,
-        Some(FlexDirection::Row),
-        Some(300.0),
-        Some(100.0),
-    );
-    engine.document.set_parent(root, container).unwrap();
+    let container =
+        create_flex_container(&mut ctx, Some(FlexDirection::Row), Some(300.0), Some(100.0));
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items with specific flex-basis values (should override width)
     let item1 = create_flex_item_with_flex(
-        &mut engine,
+        &mut ctx,
         Some(50.0),
         Some(30.0),
         None,
@@ -418,7 +392,7 @@ fn test_flex_basis_fixed_size() {
         Some(Length::Px(80.0)),
     );
     let item2 = create_flex_item_with_flex(
-        &mut engine,
+        &mut ctx,
         Some(100.0),
         Some(30.0),
         None,
@@ -426,15 +400,15 @@ fn test_flex_basis_fixed_size() {
         Some(Length::Px(120.0)),
     );
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // With specific flex-basis values, items should use those instead of width
     assert_eq!(w1, 80.0);
@@ -453,21 +427,21 @@ fn test_flex_basis_fixed_size() {
 
 #[test]
 fn test_flex_basis_column_direction() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container in column direction
     let container = create_flex_container(
-        &mut engine,
+        &mut ctx,
         Some(FlexDirection::Column),
         Some(100.0),
         Some(300.0),
     );
-    engine.document.set_parent(root, container).unwrap();
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items with flex-basis in column direction (should affect height)
     let item1 = create_flex_item_with_flex(
-        &mut engine,
+        &mut ctx,
         Some(50.0),
         Some(60.0),
         None,
@@ -475,7 +449,7 @@ fn test_flex_basis_column_direction() {
         Some(Length::Px(80.0)),
     );
     let item2 = create_flex_item_with_flex(
-        &mut engine,
+        &mut ctx,
         Some(50.0),
         Some(40.0),
         None,
@@ -483,15 +457,15 @@ fn test_flex_basis_column_direction() {
         Some(Length::Px(120.0)),
     );
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // In column direction, flex-basis should affect height
     assert_eq!(w1, 50.0); // Width should remain from original
@@ -512,21 +486,17 @@ fn test_flex_basis_column_direction() {
 
 #[test]
 fn test_flex_grow_shrink_basis_combined() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a 300px wide container
-    let container = create_flex_container(
-        &mut engine,
-        Some(FlexDirection::Row),
-        Some(300.0),
-        Some(100.0),
-    );
-    engine.document.set_parent(root, container).unwrap();
+    let container =
+        create_flex_container(&mut ctx, Some(FlexDirection::Row), Some(300.0), Some(100.0));
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items with combined flex properties
     let item1 = create_flex_item_with_flex(
-        &mut engine,
+        &mut ctx,
         Some(50.0), // width (ignored due to flex-basis)
         Some(30.0),
         Some(2.0),               // flex-grow
@@ -534,7 +504,7 @@ fn test_flex_grow_shrink_basis_combined() {
         Some(Length::Px(100.0)), // flex-basis
     );
     let item2 = create_flex_item_with_flex(
-        &mut engine,
+        &mut ctx,
         Some(60.0), // width (ignored due to flex-basis)
         Some(30.0),
         Some(1.0),              // flex-grow
@@ -542,15 +512,15 @@ fn test_flex_grow_shrink_basis_combined() {
         Some(Length::Px(80.0)), // flex-basis
     );
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Heights should remain unchanged
     assert_eq!(h1, 30.0);
@@ -575,21 +545,17 @@ fn test_flex_grow_shrink_basis_combined() {
 
 #[test]
 fn test_flex_shrink_with_basis_overflow() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a 200px wide container (smaller than total flex-basis)
-    let container = create_flex_container(
-        &mut engine,
-        Some(FlexDirection::Row),
-        Some(200.0),
-        Some(100.0),
-    );
-    engine.document.set_parent(root, container).unwrap();
+    let container =
+        create_flex_container(&mut ctx, Some(FlexDirection::Row), Some(200.0), Some(100.0));
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items with flex-basis that would overflow
     let item1 = create_flex_item_with_flex(
-        &mut engine,
+        &mut ctx,
         Some(50.0), // width (ignored)
         Some(30.0),
         None,                    // no flex-grow
@@ -597,7 +563,7 @@ fn test_flex_shrink_with_basis_overflow() {
         Some(Length::Px(150.0)), // flex-basis
     );
     let item2 = create_flex_item_with_flex(
-        &mut engine,
+        &mut ctx,
         Some(60.0), // width (ignored)
         Some(30.0),
         None,                    // no flex-grow
@@ -605,15 +571,15 @@ fn test_flex_shrink_with_basis_overflow() {
         Some(Length::Px(100.0)), // flex-basis
     );
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Heights should remain unchanged
     assert_eq!(h1, 30.0);
@@ -638,21 +604,17 @@ fn test_flex_shrink_with_basis_overflow() {
 
 #[test]
 fn test_flex_zero_values() {
-    let mut engine = create_test_engine();
-    let root = engine.document.root_id();
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
 
     // Create a container
-    let container = create_flex_container(
-        &mut engine,
-        Some(FlexDirection::Row),
-        Some(300.0),
-        Some(100.0),
-    );
-    engine.document.set_parent(root, container).unwrap();
+    let container =
+        create_flex_container(&mut ctx, Some(FlexDirection::Row), Some(300.0), Some(100.0));
+    ctx.document.set_parent(root, container).unwrap();
 
     // Create items with zero flex values
     let item1 = create_flex_item_with_flex(
-        &mut engine,
+        &mut ctx,
         Some(100.0),
         Some(30.0),
         Some(0.0), // flex-grow: 0 (don't grow)
@@ -660,7 +622,7 @@ fn test_flex_zero_values() {
         None,      // use width
     );
     let item2 = create_flex_item_with_flex(
-        &mut engine,
+        &mut ctx,
         Some(50.0),
         Some(30.0),
         Some(1.0), // flex-grow: 1 (can grow)
@@ -668,15 +630,15 @@ fn test_flex_zero_values() {
         None,
     );
 
-    engine.document.set_parent(container, item1).unwrap();
-    engine.document.set_parent(container, item2).unwrap();
+    ctx.document.set_parent(container, item1).unwrap();
+    ctx.document.set_parent(container, item2).unwrap();
 
     // Run layout
-    engine.layout();
+    ctx.layout();
 
     // Verify positioning and sizing
-    let (x1, y1, w1, h1) = get_bounds(&engine, item1);
-    let (x2, y2, w2, h2) = get_bounds(&engine, item2);
+    let (x1, y1, w1, h1) = get_bounds(&ctx, item1);
+    let (x2, y2, w2, h2) = get_bounds(&ctx, item2);
 
     // Heights should remain unchanged
     assert_eq!(h1, 30.0);

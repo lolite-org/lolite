@@ -1,9 +1,9 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
-
 use crate::{
     flex_layout::FlexLayoutEngine,
     style::{Selector, Style, StyleSheet},
+    Id,
 };
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 #[derive(Default)]
 pub struct Layout {
@@ -42,23 +42,6 @@ impl Node {
 
     pub fn add_child(&mut self, child: Rc<RefCell<Node>>) {
         self.children.push(child);
-    }
-}
-
-#[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
-pub struct Id(u64);
-
-impl Id {
-    pub fn value(&self) -> u64 {
-        self.0
-    }
-
-    pub fn as_u64(&self) -> u64 {
-        self.0
-    }
-
-    pub fn from_u64(value: u64) -> Self {
-        Id(value)
     }
 }
 
@@ -146,13 +129,13 @@ impl Document {
     }
 }
 
-pub struct Engine {
+pub struct LayoutContext {
     pub document: Document,
     pub style_sheet: StyleSheet,
     flex_layout_engine: FlexLayoutEngine,
 }
 
-impl Engine {
+impl LayoutContext {
     pub fn new() -> Self {
         Self {
             document: Document::new(),

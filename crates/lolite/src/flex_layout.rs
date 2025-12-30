@@ -10,7 +10,7 @@
  */
 
 use crate::{
-    engine::{Engine, Node},
+    layout::{LayoutContext, Node},
     style::{AlignContent, AlignItems, FlexDirection, FlexWrap, JustifyContent, Length, Style},
 };
 use std::{cell::RefCell, rc::Rc};
@@ -57,7 +57,7 @@ impl FlexLayoutEngine {
         &self,
         container: Rc<RefCell<Node>>,
         style: &Style,
-        engine: &Engine,
+        engine: &LayoutContext,
     ) {
         let flex_direction = style.flex_direction.as_ref().unwrap_or(&FlexDirection::Row);
         let flex_wrap = style.flex_wrap.as_ref().unwrap_or(&FlexWrap::NoWrap);
@@ -141,7 +141,7 @@ impl FlexLayoutEngine {
         container_height: f64,
         flex_wrap: &FlexWrap,
         style: &Style,
-        engine: &Engine,
+        engine: &LayoutContext,
     ) {
         // Get gap values - CSS gap properties take precedence over individual gap properties
         let column_gap = if let Some(gap) = &style.gap {
@@ -284,7 +284,7 @@ impl FlexLayoutEngine {
         container_height: f64,
         flex_wrap: &FlexWrap,
         style: &Style,
-        engine: &Engine,
+        engine: &LayoutContext,
     ) {
         // Get gap values
         let row_gap = if let Some(gap) = &style.gap {
