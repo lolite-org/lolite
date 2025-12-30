@@ -1,296 +1,289 @@
-use lolite_css::{CssEngine, Id};
-use std::collections::HashMap;
-use std::ffi::CStr;
-use std::os::raw::{c_char, c_int};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+mod backend;
+mod css_parser;
+mod engine;
+mod flex_layout;
+mod painter;
+mod style;
+mod windowing;
 
-mod worker_instance;
+#[cfg(test)]
+mod css_parser_tests;
 
-/// Engine wrapper that can operate in two modes:
-/// - Same process: Direct CssEngine usage
-/// - Worker process: Communication through WorkerInstance
-enum EngineMode {
-    SameProcess(Box<CssEngine>),
-    WorkerProcess(worker_instance::WorkerInstance),
+use css_parser::parse_css;
+use engine::RenderNode;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    mpsc::{self, Receiver, Sender},
+    Arc, RwLock,
+};
+use std::thread;
+use std::time::{Duration, Instant};
+
+pub use engine::Id;
+pub use painter::Painter;
+pub use windowing::{run, run_with_backend, Params};
+
+/// Thread-safe CSS engine proxy that communicates with a dedicated data thread
+pub struct CssEngine {
+    sender: Sender<Command>,
+    snapshot: Arc<RwLock<Option<RenderNode>>>,
+    root_id: Id,
+    next_id: Arc<AtomicU64>,
 }
 
-/// Handle type for engine instances
-pub type EngineHandle = usize;
+enum Command {
+    AddStylesheet(String),
+    CreateNode(Id, Option<String>),
+    SetParent(Id, Id),
+    SetAttribute(Id, String, String),
+    Layout,
+}
 
-/// Thread-safe global storage for engine instances
-/// We use Box<CssEngine> to store on heap and avoid Send+Sync requirements for static storage
-/// Note: While CssEngine has internal synchronization via FairMutex, its inner types (Rc<RefCell<>>)
-/// are not Send+Sync, so we need to be careful about cross-thread access.
-/// Each engine should be accessed from the thread that created it, or proper synchronization
-/// should be ensured by the caller.
-static ENGINE_INSTANCES: std::sync::LazyLock<Mutex<HashMap<EngineHandle, EngineMode>>> =
-    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+impl CssEngine {
+    /// Create a new CSS engine instance
+    pub fn new() -> Self {
+        let (tx, rx): (Sender<Command>, Receiver<Command>) = mpsc::channel();
+        let snapshot: Arc<RwLock<Option<RenderNode>>> = Arc::new(RwLock::new(None));
+        let snapshot_for_thread = Arc::clone(&snapshot);
 
-static NEXT_HANDLE: AtomicUsize = AtomicUsize::new(1);
+        // Spawn data thread owning the mutable engine
+        thread::spawn(move || data_thread(rx, snapshot_for_thread));
 
-/// Initialize the lolite engine
-///
-/// # Arguments
-/// * `use_same_process` - If true, runs in same process (more performant).
-///                       If false, creates a worker process (for cases where UI must run on main thread)
-///
-/// # Returns
-/// * Engine handle on success, 0 on error
-#[no_mangle]
-pub extern "C" fn lolite_init(use_same_process: bool) -> EngineHandle {
-    let engine_mode = if use_same_process {
-        EngineMode::SameProcess(Box::new(CssEngine::new()))
-    } else {
-        match worker_instance::WorkerInstance::new() {
-            Ok(worker) => EngineMode::WorkerProcess(worker),
-            Err(e) => {
-                eprintln!("Failed to create worker instance: {}", e);
-                return 0;
+        Self {
+            sender: tx,
+            snapshot,
+            root_id: Id::from_u64(0),
+            // 0 is reserved for root
+            next_id: Arc::new(AtomicU64::new(1)),
+        }
+    }
+
+    /// Add a CSS stylesheet
+    pub fn add_stylesheet(&self, css_content: &str) {
+        let _ = self
+            .sender
+            .send(Command::AddStylesheet(css_content.to_string()))
+            .expect("data thread down");
+    }
+
+    /// Create a new document node with optional text content
+    pub fn create_node(&self, text: Option<String>) -> Id {
+        // Generate unique id locally without waiting on the data thread
+        let id_value = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let id = Id::from_u64(id_value);
+        self.sender
+            .send(Command::CreateNode(id, text))
+            .expect("data thread down");
+        id
+    }
+
+    /// Set a parent-child relationship between nodes
+    pub fn set_parent(&self, parent_id: Id, child_id: Id) {
+        self.sender
+            .send(Command::SetParent(parent_id, child_id))
+            .expect("data thread down");
+    }
+
+    /// Set an attribute on a node
+    pub fn set_attribute(&self, node_id: Id, key: String, value: String) {
+        self.sender
+            .send(Command::SetAttribute(node_id, key, value))
+            .expect("data thread down");
+    }
+
+    /// Get the root node ID of the document
+    pub fn root_id(&self) -> Id {
+        self.root_id
+    }
+
+    /// Perform layout calculation
+    pub fn layout(&self) {
+        self.sender.send(Command::Layout).expect("data thread down");
+    }
+
+    // /// Find elements at a specific position (for hit testing)
+    // pub fn find_element_at_position(&self, x: f64, y: f64) -> Vec<Id> {
+    //     if let Some(snapshot) = self.snapshot.read().unwrap().as_ref() {
+    //         self.find_element_at_position_recursive(snapshot, snapshot, x, y)
+    //     } else {
+    //         // No snapshot available yet (layout not run)
+    //         vec![]
+    //     }
+    // }
+
+    // /// Recursively find elements at a specific position in the render tree
+    // fn find_element_at_position_recursive(
+    //     &self,
+    //     root: &RenderNode,
+    //     node: &RenderNode,
+    //     x: f64,
+    //     y: f64,
+    // ) -> Vec<Id> {
+    //     let mut result = Vec::new();
+
+    //     // Check if the point is within this node's bounds
+    //     if !self.point_in_bounds(&node.bounds, x, y) {
+    //         return result;
+    //     }
+
+    //     // Check children in reverse order (later children are rendered on top)
+    //     for child in node.children.iter().rev() {
+    //         let child_result = self.find_element_at_position_recursive(root, child, x, y);
+    //         if !child_result.is_empty() {
+    //             // Found a hit in a child, return the child's result chain
+    //             return child_result;
+    //         }
+    //     }
+
+    //     // No child contains the point, so this node is the topmost
+    //     // Build the parent chain by traversing up from this node
+    //     result.push(node.id);
+
+    //     // Since RenderNode doesn't have parent pointers, we need to build the chain
+    //     // by finding this node's ancestors in the tree
+    //     self.build_parent_chain(root, node.id, &mut result);
+
+    //     result
+    // }
+
+    // /// Build the parent chain for a given node ID by traversing the render tree
+    // fn build_parent_chain(&self, root: &RenderNode, target_id: Id, result: &mut Vec<Id>) {
+    //     self.find_parent_recursive(root, target_id, result);
+    // }
+
+    // /// Recursively find the parent chain for a target node
+    // fn find_parent_recursive(
+    //     &self,
+    //     node: &RenderNode,
+    //     target_id: Id,
+    //     result: &mut Vec<Id>,
+    // ) -> bool {
+    //     // Check if any direct child is our target
+    //     for child in &node.children {
+    //         if child.id == target_id {
+    //             // Found the target as a direct child, add this node as parent
+    //             result.push(node.id);
+    //             return true;
+    //         }
+    //     }
+
+    //     // Check if target is in any child subtree
+    //     for child in &node.children {
+    //         if self.find_parent_recursive(child, target_id, result) {
+    //             // Target was found in this child's subtree, add this node as ancestor
+    //             result.push(node.id);
+    //             return true;
+    //         }
+    //     }
+
+    //     false
+    // }
+
+    // /// Check if a point (x, y) is within the given bounds
+    // fn point_in_bounds(&self, bounds: &engine::Rect, x: f64, y: f64) -> bool {
+    //     x >= bounds.x
+    //         && x <= bounds.x + bounds.width
+    //         && y >= bounds.y
+    //         && y <= bounds.y + bounds.height
+    // }
+
+    /// Get a cloned copy of the current render snapshot for drawing
+    pub fn get_current_snapshot(&self) -> Option<RenderNode> {
+        self.snapshot.read().unwrap().as_ref().cloned()
+    }
+}
+
+impl Clone for CssEngine {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+            snapshot: Arc::clone(&self.snapshot),
+            root_id: self.root_id,
+            next_id: Arc::clone(&self.next_id),
+        }
+    }
+}
+
+impl Default for CssEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// No Drop needed; when all senders are dropped, data thread exits on channel disconnect
+
+fn data_thread(rx: Receiver<Command>, snapshot: Arc<RwLock<Option<RenderNode>>>) {
+    let mut eng = engine::Engine::new();
+    let mut deadline: Option<Instant> = None;
+
+    loop {
+        // Determine timeout based on debounce deadline
+        let timeout = match deadline {
+            Some(dl) => {
+                let now = Instant::now();
+                if dl <= now {
+                    // Deadline expired: run layout now
+                    eng.layout();
+                    let root = eng.document.root_node();
+                    let snap = engine::build_render_tree(root);
+                    *snapshot.write().unwrap() = Some(snap);
+                    deadline = None;
+                    // After layout, continue to next iteration
+                    continue;
+                } else {
+                    dl - now
+                }
             }
-        }
-    };
+            None => Duration::from_millis(u64::MAX / 2), // effectively wait forever
+        };
 
-    // Get next handle and store the engine
-    let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
-
-    let mut instances = ENGINE_INSTANCES.lock().unwrap();
-    instances.insert(handle, engine_mode);
-
-    handle
-}
-
-/// Add a CSS stylesheet to the engine
-///
-/// # Arguments
-/// * `handle` - Engine handle returned from lolite_init
-/// * `css_content` - Null-terminated CSS string
-///
-/// # Returns
-/// * 0 on success, -1 on error
-#[no_mangle]
-pub extern "C" fn lolite_add_stylesheet(handle: EngineHandle, css_content: *const c_char) {
-    if handle == 0 {
-        eprintln!("Invalid engine handle");
-        return;
-    }
-
-    if css_content.is_null() {
-        eprintln!("CSS content is null");
-        return;
-    }
-
-    let css_str = match unsafe { CStr::from_ptr(css_content) }.to_str() {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Invalid UTF-8 in CSS content: {}", e);
-            return;
-        }
-    };
-
-    let instances = ENGINE_INSTANCES.lock().unwrap();
-    match instances.get(&handle) {
-        Some(EngineMode::SameProcess(engine)) => {
-            engine.add_stylesheet(css_str);
-        }
-        Some(EngineMode::WorkerProcess(_worker)) => {
-            // TODO: Implement worker process stylesheet addition
-            eprintln!("Worker process mode not yet implemented for add_stylesheet");
-        }
-        None => {
-            eprintln!("Engine handle not found");
-        }
-    }
-}
-
-/// Create a new document node
-///
-/// # Arguments
-/// * `handle` - Engine handle returned from lolite_init
-/// * `text_content` - Optional null-terminated text content (can be null)
-///
-/// # Returns
-/// * Node ID on success, 0 on error (since root is always ID 0, we can distinguish)
-#[no_mangle]
-pub extern "C" fn lolite_create_node(handle: EngineHandle, text_content: *const c_char) -> u64 {
-    if handle == 0 {
-        eprintln!("Invalid engine handle");
-        return 0;
-    }
-
-    let text = if text_content.is_null() {
-        None
-    } else {
-        match unsafe { CStr::from_ptr(text_content) }.to_str() {
-            Ok(s) => Some(s.to_string()),
-            Err(e) => {
-                eprintln!("Invalid UTF-8 in text content: {}", e);
-                return 0;
+        match rx.recv_timeout(timeout) {
+            Ok(cmd) => match cmd {
+                Command::AddStylesheet(css) => match parse_css(&css) {
+                    Ok(sheet) => {
+                        for rule in sheet.rules {
+                            eng.style_sheet.add_rule(rule);
+                        }
+                        if deadline.is_none() {
+                            deadline = Some(Instant::now() + Duration::from_millis(100));
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to parse CSS: {}", e);
+                    }
+                },
+                Command::CreateNode(id, text) => {
+                    eng.document.create_node(id, text);
+                    if deadline.is_none() {
+                        deadline = Some(Instant::now() + Duration::from_millis(100));
+                    }
+                }
+                Command::SetParent(p, c) => {
+                    eng.document.set_parent(p, c).expect("data thread down");
+                    if deadline.is_none() {
+                        deadline = Some(Instant::now() + Duration::from_millis(100));
+                    }
+                }
+                Command::SetAttribute(id, k, v) => {
+                    eng.document.set_attribute(id, k, v);
+                    if deadline.is_none() {
+                        deadline = Some(Instant::now() + Duration::from_millis(100));
+                    }
+                }
+                Command::Layout => {
+                    // Immediate layout flush
+                    eng.layout();
+                    let root = eng.document.root_node();
+                    let snap = engine::build_render_tree(root);
+                    *snapshot.write().unwrap() = Some(snap);
+                    deadline = None;
+                }
+            },
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // handled at top loop when checking expired deadline
+                continue;
             }
-        }
-    };
-
-    let instances = ENGINE_INSTANCES.lock().unwrap();
-    match instances.get(&handle) {
-        Some(EngineMode::SameProcess(engine)) => {
-            let id = engine.create_node(text);
-            id.as_u64()
-        }
-        Some(EngineMode::WorkerProcess(_worker)) => {
-            // TODO: Implement worker process node creation
-            eprintln!("Worker process mode not yet implemented for create_node");
-            0
-        }
-        None => {
-            eprintln!("Engine handle not found");
-            0
-        }
-    }
-}
-
-/// Set parent-child relationship between nodes
-///
-/// # Arguments
-/// * `handle` - Engine handle returned from lolite_init
-/// * `parent_id` - ID of the parent node
-/// * `child_id` - ID of the child node
-///
-/// # Returns
-/// * 0 on success, -1 on error
-#[no_mangle]
-pub extern "C" fn lolite_set_parent(handle: EngineHandle, parent_id: u64, child_id: u64) {
-    if handle == 0 {
-        eprintln!("Invalid engine handle");
-        return;
-    }
-
-    let parent = Id::from_u64(parent_id);
-    let child = Id::from_u64(child_id);
-
-    let instances = ENGINE_INSTANCES.lock().unwrap();
-    match instances.get(&handle) {
-        Some(EngineMode::SameProcess(engine)) => {
-            engine.set_parent(parent, child);
-        }
-        Some(EngineMode::WorkerProcess(_worker)) => {
-            // TODO: Implement worker process set_parent
-            eprintln!("Worker process mode not yet implemented for set_parent");
-        }
-        None => {
-            eprintln!("Engine handle not found");
-        }
-    }
-}
-
-/// Set an attribute on a node
-///
-/// # Arguments
-/// * `handle` - Engine handle returned from lolite_init
-/// * `node_id` - ID of the node
-/// * `key` - Null-terminated attribute key string
-/// * `value` - Null-terminated attribute value string
-///
-/// # Returns
-/// * 0 on success, -1 on error
-#[no_mangle]
-pub extern "C" fn lolite_set_attribute(
-    handle: EngineHandle,
-    node_id: u64,
-    key: *const c_char,
-    value: *const c_char,
-) {
-    if handle == 0 {
-        eprintln!("Invalid engine handle");
-        return;
-    }
-
-    if key.is_null() || value.is_null() {
-        eprintln!("Key or value is null");
-        return;
-    }
-
-    let key_str = match unsafe { CStr::from_ptr(key) }.to_str() {
-        Ok(s) => s.to_string(),
-        Err(e) => {
-            eprintln!("Invalid UTF-8 in attribute key: {}", e);
-            return;
-        }
-    };
-
-    let value_str = match unsafe { CStr::from_ptr(value) }.to_str() {
-        Ok(s) => s.to_string(),
-        Err(e) => {
-            eprintln!("Invalid UTF-8 in attribute value: {}", e);
-            return;
-        }
-    };
-
-    let node = Id::from_u64(node_id);
-
-    let instances = ENGINE_INSTANCES.lock().unwrap();
-    match instances.get(&handle) {
-        Some(EngineMode::SameProcess(engine)) => {
-            engine.set_attribute(node, key_str, value_str);
-        }
-        Some(EngineMode::WorkerProcess(_worker)) => {
-            // TODO: Implement worker process set_attribute
-            eprintln!("Worker process mode not yet implemented for set_attribute");
-        }
-        None => {
-            eprintln!("Engine handle not found");
-        }
-    }
-}
-
-/// Get the root node ID of the document
-///
-/// # Arguments
-/// * `handle` - Engine handle returned from lolite_init
-///
-/// # Returns
-/// * Root node ID (always 0 for the document root), or 0 if handle is invalid
-#[no_mangle]
-pub extern "C" fn lolite_root_id(handle: EngineHandle) -> u64 {
-    if handle == 0 {
-        eprintln!("Invalid engine handle");
-        return 0;
-    }
-
-    let instances = ENGINE_INSTANCES.lock().unwrap();
-    match instances.get(&handle) {
-        Some(EngineMode::SameProcess(engine)) => engine.root_id().as_u64(),
-        Some(EngineMode::WorkerProcess(_worker)) => {
-            // TODO: Implement worker process root_id
-            eprintln!("Worker process mode not yet implemented for root_id");
-            0
-        }
-        None => {
-            eprintln!("Engine handle not found");
-            0
-        }
-    }
-}
-
-/// Cleanup and destroy an engine instance
-///
-/// # Arguments
-/// * `handle` - Engine handle returned from lolite_init
-///
-/// # Returns
-/// * 0 on success, -1 on error
-#[no_mangle]
-pub extern "C" fn lolite_destroy(handle: EngineHandle) -> c_int {
-    if handle == 0 {
-        eprintln!("Invalid engine handle");
-        return -1;
-    }
-
-    let mut instances = ENGINE_INSTANCES.lock().unwrap();
-    match instances.remove(&handle) {
-        Some(_) => 0,
-        None => {
-            eprintln!("Engine handle not found");
-            -1
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
 }

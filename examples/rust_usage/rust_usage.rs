@@ -1,4 +1,4 @@
-use lolite_css::{CssEngine, Params};
+use lolite::{CssEngine, Params};
 use std::cell::RefCell;
 
 fn main() -> anyhow::Result<()> {
@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
     let params = Params {
         on_draw: Box::new(move |canvas| {
             if let Some(snapshot) = engine_for_draw.get_current_snapshot() {
-                let mut painter = lolite_css::Painter::new(canvas);
+                let mut painter = lolite::Painter::new(canvas);
                 painter.paint(&snapshot);
             }
         }),
@@ -76,7 +76,7 @@ fn main() -> anyhow::Result<()> {
         })),
     };
 
-    lolite_css::run(&RefCell::new(params))?;
+    lolite::run(&RefCell::new(params))?;
 
     Ok(())
 }

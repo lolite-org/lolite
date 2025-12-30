@@ -697,23 +697,6 @@ name = "lolite"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "ipc-channel",
- "lolite_common",
- "lolite_css",
- "lolite_transfer",
- "once_cell",
- "shared_memory",
-]
-
-[[package]]
-name = "lolite_common"
-version = "0.1.0"
-
-[[package]]
-name = "lolite_css"
-version = "0.1.0"
-dependencies = [
- "anyhow",
  "core-graphics-types",
  "cssparser",
  "lolite_macros",
@@ -727,19 +710,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "lolite_common"
+version = "0.1.0"
+
+[[package]]
+name = "lolite_lib"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ipc-channel",
+ "lolite",
+ "lolite_common",
+ "lolite_transfer",
+ "once_cell",
+ "shared_memory",
+]
+
+[[package]]
 name = "lolite_macros"
 version = "0.1.0"
 dependencies = [
  "quote",
  "syn",
-]
-
-[[package]]
-name = "lolite_tester"
-version = "0.1.0"
-dependencies = [
- "libloading",
- "lolite",
 ]
 
 [[package]]

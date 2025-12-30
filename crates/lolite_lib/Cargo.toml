@@ -1,0 +1,20 @@
+[package]
+name = "lolite_lib"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+lolite_common = { path = "../lolite_common" }
+lolite_transfer = { path = "../lolite_transfer" }
+lolite = { path = "../lolite" }
+shared_memory = { workspace = true }
+once_cell = { workspace = true }
+ipc-channel = { workspace = true }
+anyhow = "1.0.95"
+
+[[example]]
+name = "rust_usage"
+path = "../../examples/rust_usage/rust_usage.rs"
+
+[lib]
+crate-type = ["cdylib", "lib"]

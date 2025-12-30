@@ -2,9 +2,8 @@
 members = [
     "crates/lolite",
     "crates/lolite_common",
-    "crates/lolite_css",
+    "crates/lolite_lib",
     "crates/lolite_macros",
-    "crates/lolite_tester",
     "crates/lolite_transfer",
     "crates/lolite_worker",
 ]
