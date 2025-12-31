@@ -7,7 +7,6 @@ use skia_safe::{
     },
     ColorType, Surface,
 };
-use std::cell::RefCell;
 use windows::{
     core::Interface,
     Win32::{
@@ -38,7 +37,7 @@ use winit::{
 const BUFFER_COUNT: usize = 2;
 
 /// Direct3D 12 rendering backend implementation
-pub struct D3D12Backend<'a> {
+pub struct D3D12Backend {
     window: Window,
     #[allow(unused)]
     factory: IDXGIFactory4,
@@ -51,13 +50,12 @@ pub struct D3D12Backend<'a> {
     // Surfaces declared after above so they drop FIRST
     surfaces: [Option<(Surface, BackendRenderTarget)>; BUFFER_COUNT],
     input_state: InputState,
-    params: &'a RefCell<Params>,
     current_width: u32,
     current_height: u32,
 }
 
-impl<'a> RenderingBackend<'a> for D3D12Backend<'a> {
-    fn new(event_loop: &ActiveEventLoop, params: &'a RefCell<Params>) -> Result<Self> {
+impl RenderingBackend for D3D12Backend {
+    fn new(event_loop: &ActiveEventLoop) -> Result<Self> {
         // Enable D3D12 debug layer (best effort)
         #[cfg(debug_assertions)]
         unsafe {
@@ -124,7 +122,6 @@ impl<'a> RenderingBackend<'a> for D3D12Backend<'a> {
             direct_context,
             surfaces: [None, None],
             input_state: InputState::default(),
-            params,
             current_width: width,
             current_height: height,
         };
@@ -151,7 +148,7 @@ impl<'a> RenderingBackend<'a> for D3D12Backend<'a> {
         }
     }
 
-    fn render(&mut self) {
+    fn render(&mut self, params: &mut Params) {
         let index = unsafe { self.swap_chain.GetCurrentBackBufferIndex() };
         if self.surfaces[index as usize].is_none() {
             // Attempt to restore valid surfaces to avoid panic
@@ -163,7 +160,7 @@ impl<'a> RenderingBackend<'a> for D3D12Backend<'a> {
         };
         let canvas = surface.canvas();
 
-        (self.params.borrow_mut().on_draw)(canvas);
+        (params.on_draw)(canvas);
         self.direct_context.flush_and_submit_surface(surface, None);
         // Extra flush to ensure state transitions back to PRESENT/COMMON before Present
         self.direct_context.flush_and_submit();
@@ -176,15 +173,12 @@ impl<'a> RenderingBackend<'a> for D3D12Backend<'a> {
     fn input_state(&self) -> &InputState {
         &self.input_state
     }
-    fn params(&self) -> &'a RefCell<Params> {
-        self.params
-    }
     fn request_redraw(&self) {
         self.window.request_redraw();
     }
 }
 
-impl<'a> D3D12Backend<'a> {
+impl D3D12Backend {
     fn recreate_surfaces(&mut self, width: u32, height: u32) -> Result<()> {
         for i in 0..BUFFER_COUNT {
             let resource = unsafe { self.swap_chain.GetBuffer(i as u32).unwrap() };
@@ -296,7 +290,7 @@ impl<'a> D3D12Backend<'a> {
     }
 }
 
-impl<'a> Drop for D3D12Backend<'a> {
+impl Drop for D3D12Backend {
     fn drop(&mut self) {
         // Ensure Skia finishes and releases all refs before Device/SwapChain are dropped
         self.direct_context.flush_and_submit();

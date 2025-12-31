@@ -1,17 +1,16 @@
 use crate::backend::{BackendType, RenderingBackend};
-use std::cell::RefCell;
 
 // Re-export types
 pub use crate::backend::Params;
 
 /// Run the windowing system with the default backend for the current platform
-pub fn run(params: &RefCell<crate::backend::Params>) -> anyhow::Result<()> {
+pub fn run(params: &mut crate::backend::Params) -> anyhow::Result<()> {
     run_with_backend(params, BackendType::default())
 }
 
 /// Run the windowing system with a specific backend
 pub fn run_with_backend(
-    params: &RefCell<crate::backend::Params>,
+    params: &mut crate::backend::Params,
     backend_type: BackendType,
 ) -> anyhow::Result<()> {
     println!(
@@ -28,8 +27,8 @@ pub fn run_with_backend(
 }
 
 /// Generic implementation that works with any backend
-fn run_with_backend_impl<'a, B: RenderingBackend<'a>>(
-    params: &'a RefCell<crate::backend::Params>,
+fn run_with_backend_impl<'a, B: RenderingBackend>(
+    params: &'a mut crate::backend::Params,
 ) -> anyhow::Result<()> {
     use winit::{
         application::ApplicationHandler,
@@ -41,16 +40,17 @@ fn run_with_backend_impl<'a, B: RenderingBackend<'a>>(
 
     let event_loop = EventLoop::new()?;
 
-    struct Application<'a, B: RenderingBackend<'a>> {
+    struct Application<'a, B: RenderingBackend> {
         backend: Option<B>,
-        params: &'a RefCell<crate::backend::Params>,
+        params: &'a mut crate::backend::Params,
     }
 
-    impl<'a, B: RenderingBackend<'a>> ApplicationHandler for Application<'a, B> {
+    impl<'a, B: RenderingBackend> ApplicationHandler for Application<'a, B> {
         fn resumed(&mut self, event_loop: &ActiveEventLoop) {
             assert!(self.backend.is_none());
-            self.backend =
-                Some(B::new(event_loop, self.params).expect("Failed to create rendering backend"));
+
+            self.backend = Some(B::new(event_loop).expect("Failed to create rendering backend"));
+
             if let Some(ref backend) = self.backend {
                 backend.request_redraw();
             }
@@ -90,22 +90,22 @@ fn run_with_backend_impl<'a, B: RenderingBackend<'a>>(
                 } => {
                     let input_state = backend.input_state();
                     if let Some(cursor_position) = &input_state.cursor_position {
-                        if let Some(ref mut on_click) = backend.params().borrow_mut().on_click {
-                            on_click(cursor_position.x, cursor_position.y);
-                        }
+                        (self.params.on_click)(cursor_position.x, cursor_position.y);
                     }
                 }
                 WindowEvent::CursorMoved { position, .. } => {
                     backend.input_state_mut().cursor_position = Some(position);
                 }
-                WindowEvent::RedrawRequested => backend.render(),
+                WindowEvent::RedrawRequested => backend.render(self.params),
                 WindowEvent::CloseRequested => event_loop.exit(),
                 _ => {}
             }
         }
     }
 
-    let mut application = Application::<B> {
+    // unsafe: We avoid lifetime issues by transmuting the params reference.
+    // The params always outlife the Application struct
+    let mut application = Application::<'a, B> {
         backend: None,
         params,
     };

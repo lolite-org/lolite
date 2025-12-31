@@ -35,13 +35,13 @@ pub struct MetalBackend<'a> {
     direct_context: DirectContext,
     surfaces: [Option<(Surface, BackendRenderTarget)>; BUFFER_COUNT],
     input_state: InputState,
-    params: &'a RefCell<Params>,
+    params: &'a mut Params<'a>,
     current_width: u32,
     current_height: u32,
 }
 
 impl<'a> RenderingBackend<'a> for MetalBackend<'a> {
-    fn new(event_loop: &ActiveEventLoop, params: &'a RefCell<Params>) -> Result<Self> {
+    fn new(event_loop: &ActiveEventLoop, params: &'a mut Params<'a>) -> Result<Self> {
         let mut window_attributes = WindowAttributes::default();
         window_attributes.inner_size = Some(Size::new(LogicalSize::new(800, 800)));
         window_attributes.title = "Lolite CSS - Metal".into();
@@ -158,7 +158,7 @@ impl<'a> RenderingBackend<'a> for MetalBackend<'a> {
             let canvas = surface.canvas();
 
             // Call the draw callback
-            (self.params.borrow_mut().on_draw)(canvas);
+            (self.params.on_draw)(canvas);
 
             // Flush and present
             self.direct_context
@@ -175,10 +175,6 @@ impl<'a> RenderingBackend<'a> for MetalBackend<'a> {
 
     fn input_state(&self) -> &InputState {
         &self.input_state
-    }
-
-    fn params(&self) -> &'a RefCell<Params> {
-        self.params
     }
 
     fn request_redraw(&self) {

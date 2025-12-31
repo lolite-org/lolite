@@ -1,6 +1,5 @@
 use anyhow::Result;
 use skia_safe::Canvas;
-use std::cell::RefCell;
 use winit::{event::WindowEvent, event_loop::ActiveEventLoop};
 
 #[cfg(target_os = "windows")]
@@ -11,7 +10,7 @@ pub mod metal;
 /// Common parameters shared across all rendering backends
 pub struct Params {
     pub on_draw: Box<dyn FnMut(&Canvas)>,
-    pub on_click: Option<Box<dyn FnMut(f64, f64)>>, // x, y coordinates
+    pub on_click: Box<dyn FnMut(f64, f64)>, // x, y coordinates
 }
 
 /// State shared across all backends for input handling
@@ -32,9 +31,9 @@ impl Default for InputState {
 }
 
 /// Trait that all rendering backends must implement
-pub trait RenderingBackend<'a> {
+pub trait RenderingBackend {
     /// Create a new backend instance
-    fn new(event_loop: &ActiveEventLoop, params: &'a RefCell<Params>) -> Result<Self>
+    fn new(event_loop: &ActiveEventLoop) -> Result<Self>
     where
         Self: Sized;
 
@@ -42,16 +41,13 @@ pub trait RenderingBackend<'a> {
     fn handle_window_event(&mut self, event: &WindowEvent) -> bool;
 
     /// Render a frame
-    fn render(&mut self);
+    fn render(&mut self, params: &mut Params);
 
     /// Get mutable reference to input state
     fn input_state_mut(&mut self) -> &mut InputState;
 
     /// Get reference to input state
     fn input_state(&self) -> &InputState;
-
-    /// Get reference to params
-    fn params(&self) -> &'a RefCell<Params>;
 
     /// Request a redraw
     fn request_redraw(&self);

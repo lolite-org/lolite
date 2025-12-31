@@ -13,7 +13,6 @@ mod css_parser_tests;
 use commands::Command;
 use layout::RenderNode;
 use painter::Painter;
-use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::sync::{
@@ -21,7 +20,6 @@ use std::sync::{
     Arc, RwLock,
 };
 use std::thread;
-use windowing::{run, Params};
 
 #[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
 pub struct Id(u64);
@@ -49,8 +47,12 @@ pub struct Engine {
     running: Arc<Mutex<()>>,
 }
 
+pub struct Params {
+    pub on_click: Option<Box<dyn Fn(f64, f64, Vec<Id>)>>,
+}
+
 #[derive(Debug)]
-pub enum RunError {
+pub enum Error {
     AlreadyRunning,
     UnknownError(String),
 }
@@ -76,45 +78,32 @@ impl Engine {
     }
 
     // Run the event loop
-    pub fn run(&self) -> Result<(), RunError> {
+    pub fn run(&self, params: Params) -> Result<(), Error> {
         // only allow running once
-        let _lock = self
-            .running
-            .try_lock()
-            .map_err(|_| RunError::AlreadyRunning)?;
+        let _lock = self.running.try_lock().map_err(|_| Error::AlreadyRunning)?;
 
         let this1 = self.clone();
         let this2 = self.clone();
 
-        let params = Params {
+        let mut params = windowing::Params {
             on_draw: Box::new(move |canvas| {
                 if let Some(snapshot) = this1.get_current_snapshot() {
                     let mut painter = Painter::new(canvas);
                     painter.paint(&snapshot);
                 }
             }),
-            on_click: Some(Box::new(move |x, y| {
+            on_click: Box::new(move |x, y| {
                 if let Some(snapshot) = this2.get_current_snapshot() {
                     let elements = snapshot.find_element_at_position(x, y);
 
-                    if elements.is_empty() {
-                        println!("Click detected on background at ({:.1}, {:.1})", x, y);
-                    } else {
-                        println!(
-                            "Click detected at ({:.1}, {:.1}) on {} elements:",
-                            x,
-                            y,
-                            elements.len()
-                        );
-                        for (i, element_id) in elements.iter().enumerate() {
-                            println!("  Level {}: Element ID {:?}", i, element_id.value());
-                        }
+                    if let Some(ref on_click) = params.on_click {
+                        on_click(x, y, elements);
                     }
                 }
-            })),
+            }),
         };
 
-        run(&RefCell::new(params)).map_err(|err| RunError::UnknownError(err.to_string()))?;
+        windowing::run(&mut params).map_err(|err| Error::UnknownError(err.to_string()))?;
 
         Ok(())
     }

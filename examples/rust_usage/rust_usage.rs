@@ -45,7 +45,13 @@ fn main() {
     engine.set_attribute(b, "class".to_owned(), "green_box".to_owned());
 
     // Run
-    if let Err(e) = engine.run() {
+    let params = lolite::Params {
+        on_click: Some(Box::new(|x, y, elements| {
+            println!("Clicked at ({}, {}), elements: {:?}", x, y, elements);
+        })),
+    };
+
+    if let Err(e) = engine.run(params) {
         eprintln!("Error encountered: {:?}", e);
     }
 }
