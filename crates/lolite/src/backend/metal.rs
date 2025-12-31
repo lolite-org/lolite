@@ -1,6 +1,5 @@
 use super::{InputState, Params, RenderingBackend};
 use anyhow::Result;
-use std::cell::RefCell;
 use winit::{
     dpi::{LogicalSize, Size},
     event::WindowEvent,
@@ -28,20 +27,19 @@ use skia_safe::{
 const BUFFER_COUNT: usize = 3;
 
 /// Metal rendering backend implementation for macOS
-pub struct MetalBackend<'a> {
+pub struct MetalBackend {
     window: Window,
     device: Device,
     layer: MetalLayer,
     direct_context: DirectContext,
     surfaces: [Option<(Surface, BackendRenderTarget)>; BUFFER_COUNT],
     input_state: InputState,
-    params: &'a mut Params<'a>,
     current_width: u32,
     current_height: u32,
 }
 
-impl<'a> RenderingBackend<'a> for MetalBackend<'a> {
-    fn new(event_loop: &ActiveEventLoop, params: &'a mut Params<'a>) -> Result<Self> {
+impl RenderingBackend for MetalBackend {
+    fn new(event_loop: &ActiveEventLoop) -> Result<Self> {
         let mut window_attributes = WindowAttributes::default();
         window_attributes.inner_size = Some(Size::new(LogicalSize::new(800, 800)));
         window_attributes.title = "Lolite CSS - Metal".into();
@@ -100,7 +98,6 @@ impl<'a> RenderingBackend<'a> for MetalBackend<'a> {
             direct_context,
             surfaces: [None, None, None],
             input_state: InputState::default(),
-            params,
             current_width: width,
             current_height: height,
         };
@@ -127,7 +124,7 @@ impl<'a> RenderingBackend<'a> for MetalBackend<'a> {
         }
     }
 
-    fn render(&mut self) {
+    fn render(&mut self, params: &mut Params) {
         // Get next drawable from layer
         let drawable = match self.layer.next_drawable() {
             Some(drawable) => drawable,
@@ -158,7 +155,7 @@ impl<'a> RenderingBackend<'a> for MetalBackend<'a> {
             let canvas = surface.canvas();
 
             // Call the draw callback
-            (self.params.on_draw)(canvas);
+            (params.on_draw)(canvas);
 
             // Flush and present
             self.direct_context
@@ -182,7 +179,7 @@ impl<'a> RenderingBackend<'a> for MetalBackend<'a> {
     }
 }
 
-impl<'a> MetalBackend<'a> {
+impl MetalBackend {
     fn recreate_surfaces(&mut self, width: u32, height: u32) -> Result<()> {
         // Update layer drawable size
         self.layer
@@ -209,7 +206,7 @@ impl<'a> MetalBackend<'a> {
     }
 }
 
-impl<'a> Drop for MetalBackend<'a> {
+impl Drop for MetalBackend {
     fn drop(&mut self) {
         // Ensure all GPU work is finished
         self.direct_context.flush_and_submit();
