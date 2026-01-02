@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::sync::Mutex;
 
 mod worker_instance;
@@ -12,7 +13,7 @@ mod worker_instance;
 /// - Worker process: Communication through WorkerInstance
 enum EngineMode {
     SameProcess(Box<Engine>),
-    WorkerProcess(worker_instance::WorkerInstance),
+    WorkerProcess(Arc<Mutex<worker_instance::WorkerInstance>>),
 }
 
 /// Handle type for engine instances
@@ -42,25 +43,41 @@ static NEXT_HANDLE: AtomicUsize = AtomicUsize::new(1);
 /// * Engine handle on success, 0 on error
 #[no_mangle]
 pub extern "C" fn lolite_init(use_same_process: bool) -> EngineHandle {
-    let engine_mode = if use_same_process {
-        EngineMode::SameProcess(Box::new(Engine::new()))
+    let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
+
+    if use_same_process {
+        ENGINE_INSTANCES
+            .lock()
+            .unwrap()
+            .insert(handle, EngineMode::SameProcess(Box::new(Engine::new())));
     } else {
-        match worker_instance::WorkerInstance::new() {
-            Ok(worker) => EngineMode::WorkerProcess(worker),
+        let worker = match worker_instance::WorkerInstance::new() {
+            Ok(worker) => worker,
             Err(e) => {
                 eprintln!("Failed to create worker instance: {}", e);
                 return 0;
             }
-        }
+        };
+
+        let worker = Arc::new(Mutex::new(worker));
+
+        worker.lock().unwrap().init(handle);
+
+        ENGINE_INSTANCES
+            .lock()
+            .unwrap()
+            .insert(handle, EngineMode::WorkerProcess(worker));
     };
 
-    // Get next handle and store the engine
-    let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
-
-    let mut instances = ENGINE_INSTANCES.lock().unwrap();
-    instances.insert(handle, engine_mode);
-
     handle
+}
+
+#[no_mangle]
+pub extern "C" fn lolite_init_internal(handle: EngineHandle) {
+    ENGINE_INSTANCES
+        .lock()
+        .unwrap()
+        .insert(handle, EngineMode::SameProcess(Box::new(Engine::new())));
 }
 
 /// Add a CSS stylesheet to the engine
@@ -68,41 +85,34 @@ pub extern "C" fn lolite_init(use_same_process: bool) -> EngineHandle {
 /// # Arguments
 /// * `handle` - Engine handle returned from lolite_init
 /// * `css_content` - Null-terminated CSS string
-///
-/// # Returns
-/// * 0 on success, -1 on error
 #[no_mangle]
 pub extern "C" fn lolite_add_stylesheet(handle: EngineHandle, css_content: *const c_char) {
-    if handle == 0 {
-        eprintln!("Invalid engine handle");
-        return;
-    }
-
-    if css_content.is_null() {
-        eprintln!("CSS content is null");
-        return;
-    }
-
-    let css_str = match unsafe { CStr::from_ptr(css_content) }.to_str() {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Invalid UTF-8 in CSS content: {}", e);
-            return;
-        }
-    };
-
     let instances = ENGINE_INSTANCES.lock().unwrap();
     match instances.get(&handle) {
         Some(EngineMode::SameProcess(engine)) => {
+            if handle == 0 {
+                eprintln!("Invalid engine handle");
+                return;
+            }
+
+            if css_content.is_null() {
+                eprintln!("CSS content is null");
+                return;
+            }
+
+            let css_str = match unsafe { CStr::from_ptr(css_content) }.to_str() {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Invalid UTF-8 in CSS content: {}", e);
+                    return;
+                }
+            };
             engine.add_stylesheet(css_str);
         }
-        Some(EngineMode::WorkerProcess(_worker)) => {
-            // TODO: Implement worker process stylesheet addition
-            eprintln!("Worker process mode not yet implemented for add_stylesheet");
+        Some(EngineMode::WorkerProcess(worker)) => {
+            worker.lock().unwrap().add_stylesheet(handle, css_content);
         }
-        None => {
-            eprintln!("Engine handle not found");
-        }
+        None => eprintln!("Engine handle not found"),
     }
 }
 
@@ -142,10 +152,8 @@ pub extern "C" fn lolite_create_node(
             let id = engine.create_node(text);
             id.as_u64()
         }
-        Some(EngineMode::WorkerProcess(_worker)) => {
-            // TODO: Implement worker process node creation
-            eprintln!("Worker process mode not yet implemented for create_node");
-            0
+        Some(EngineMode::WorkerProcess(worker)) => {
+            worker.lock().unwrap().create_node(handle, text_content)
         }
         None => {
             eprintln!("Engine handle not found");
@@ -178,9 +186,11 @@ pub extern "C" fn lolite_set_parent(handle: EngineHandle, parent_id: LoliteId, c
         Some(EngineMode::SameProcess(engine)) => {
             engine.set_parent(parent, child);
         }
-        Some(EngineMode::WorkerProcess(_worker)) => {
-            // TODO: Implement worker process set_parent
-            eprintln!("Worker process mode not yet implemented for set_parent");
+        Some(EngineMode::WorkerProcess(worker)) => {
+            worker
+                .lock()
+                .unwrap()
+                .set_parent(handle, parent_id, child_id);
         }
         None => {
             eprintln!("Engine handle not found");
@@ -238,9 +248,11 @@ pub extern "C" fn lolite_set_attribute(
         Some(EngineMode::SameProcess(engine)) => {
             engine.set_attribute(node, key_str, value_str);
         }
-        Some(EngineMode::WorkerProcess(_worker)) => {
-            // TODO: Implement worker process set_attribute
-            eprintln!("Worker process mode not yet implemented for set_attribute");
+        Some(EngineMode::WorkerProcess(worker)) => {
+            worker
+                .lock()
+                .unwrap()
+                .set_attribute(handle, node_id, key, value);
         }
         None => {
             eprintln!("Engine handle not found");
@@ -265,11 +277,7 @@ pub extern "C" fn lolite_root_id(handle: EngineHandle) -> LoliteId {
     let instances = ENGINE_INSTANCES.lock().unwrap();
     match instances.get(&handle) {
         Some(EngineMode::SameProcess(engine)) => engine.root_id().as_u64(),
-        Some(EngineMode::WorkerProcess(_worker)) => {
-            // TODO: Implement worker process root_id
-            eprintln!("Worker process mode not yet implemented for root_id");
-            0
-        }
+        Some(EngineMode::WorkerProcess(worker)) => worker.lock().unwrap().root_id(handle),
         None => {
             eprintln!("Engine handle not found");
             0
@@ -292,15 +300,13 @@ pub extern "C" fn lolite_run(handle: EngineHandle) -> c_int {
     }
 
     // IMPORTANT: do not hold the global lock while running the event loop.
-    // Take a clone of the engine and drop the lock before calling into run().
-    let engine = {
+    // - SameProcess: clone the Engine
+    // - WorkerProcess: clone the Arc so we can call WorkerInstance::run
+    let (engine, worker) = {
         let instances = ENGINE_INSTANCES.lock().unwrap();
         match instances.get(&handle) {
-            Some(EngineMode::SameProcess(engine)) => engine.as_ref().clone(),
-            Some(EngineMode::WorkerProcess(_worker)) => {
-                eprintln!("Worker process mode not yet implemented for run");
-                return -1;
-            }
+            Some(EngineMode::SameProcess(engine)) => (Some(engine.as_ref().clone()), None),
+            Some(EngineMode::WorkerProcess(worker)) => (None, Some(Arc::clone(worker))),
             None => {
                 eprintln!("Engine handle not found");
                 return -1;
@@ -308,13 +314,23 @@ pub extern "C" fn lolite_run(handle: EngineHandle) -> c_int {
         }
     };
 
-    match engine.run(Params { on_click: None }) {
-        Ok(()) => 0,
-        Err(err) => {
-            eprintln!("lolite_run failed: {:?}", err);
-            -1
-        }
+    if let Some(engine) = engine {
+        return match engine.run(Params { on_click: None }) {
+            Ok(()) => 0,
+            Err(err) => {
+                eprintln!("lolite_run failed: {:?}", err);
+                -1
+            }
+        };
     }
+
+    let Some(worker) = worker else {
+        eprintln!("Internal error: missing engine and worker");
+        return -1;
+    };
+
+    let code = worker.lock().unwrap().run(handle);
+    code
 }
 
 /// Cleanup and destroy an engine instance
@@ -333,7 +349,8 @@ pub extern "C" fn lolite_destroy(handle: EngineHandle) -> c_int {
 
     let mut instances = ENGINE_INSTANCES.lock().unwrap();
     match instances.remove(&handle) {
-        Some(_) => 0,
+        Some(EngineMode::SameProcess(_)) => 0,
+        Some(EngineMode::WorkerProcess(worker)) => worker.lock().unwrap().destroy_engine(handle),
         None => {
             eprintln!("Engine handle not found");
             -1

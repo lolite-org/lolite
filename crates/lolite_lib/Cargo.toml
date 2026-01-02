@@ -5,7 +5,6 @@ edition.workspace = true
 
 [dependencies]
 lolite_common = { path = "../lolite_common" }
-lolite_transfer = { path = "../lolite_transfer" }
 lolite = { path = "../lolite" }
 shared_memory = { workspace = true }
 once_cell = { workspace = true }

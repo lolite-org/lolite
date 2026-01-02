@@ -4,4 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-shared_memory = { workspace = true }
+ipc-channel = { workspace = true }
+libloading = "0.8.6"
+lolite_common = { path = "../lolite_common" }
