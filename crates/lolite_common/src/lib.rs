@@ -15,8 +15,8 @@ pub enum WorkerRequest {
     },
     CreateNode {
         handle: u64,
+        node_id: u64,
         text: Option<String>,
-        reply_to: IpcSender<u64>,
     },
     SetParent {
         handle: u64,

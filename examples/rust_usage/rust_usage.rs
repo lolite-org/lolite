@@ -1,4 +1,4 @@
-use lolite::Engine;
+use lolite::{Engine, Id};
 
 fn main() {
     // Create a thread-safe CSS engine
@@ -32,9 +32,13 @@ fn main() {
 
     // Create document structure
     let root = engine.root_id();
-    let a = engine.create_node(Some("Hello".to_string()));
-    let b = engine.create_node(Some("World".to_string()));
-    let c = engine.create_node(Some("xD".to_string()));
+    let mut next_id = 1u64;
+
+    let a = engine.create_node(Id::from_u64(next_id), Some("Hello".to_string()));
+    next_id += 1;
+    let b = engine.create_node(Id::from_u64(next_id), Some("World".to_string()));
+    next_id += 1;
+    let c = engine.create_node(Id::from_u64(next_id), Some("xD".to_string()));
 
     engine.set_parent(root, a);
     engine.set_parent(root, b);

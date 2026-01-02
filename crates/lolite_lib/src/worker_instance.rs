@@ -68,42 +68,13 @@ impl WorkerInstance {
         }
     }
 
-    pub fn create_node(&self, handle: EngineHandle, text_content: *const c_char) -> u64 {
-        let text = if text_content.is_null() {
-            None
-        } else {
-            match unsafe { CStr::from_ptr(text_content) }.to_str() {
-                Ok(s) => Some(s.to_string()),
-                Err(e) => {
-                    eprintln!("Invalid UTF-8 in text content: {e}");
-                    return 0;
-                }
-            }
-        };
-
-        let (reply_tx, reply_rx) = match ipc::channel::<u64>() {
-            Ok(ch) => ch,
-            Err(e) => {
-                eprintln!("Failed to create reply channel: {e}");
-                return 0;
-            }
-        };
-
+    pub fn create_node(&self, handle: EngineHandle, node_id: u64, text: Option<String>) {
         if let Err(e) = self.sender.send(lolite_common::WorkerRequest::CreateNode {
             handle: handle as u64,
+            node_id,
             text,
-            reply_to: reply_tx,
         }) {
             eprintln!("Failed to send CreateNode to worker: {e}");
-            return 0;
-        }
-
-        match reply_rx.recv() {
-            Ok(id) => id,
-            Err(e) => {
-                eprintln!("Failed to receive CreateNode response: {e}");
-                0
-            }
         }
     }
 

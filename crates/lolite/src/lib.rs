@@ -13,7 +13,6 @@ mod css_parser_tests;
 use commands::Command;
 use layout::RenderNode;
 use painter::Painter;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::sync::{
     mpsc::{channel, Receiver, Sender},
@@ -43,7 +42,6 @@ pub struct Engine {
     sender: Sender<Command>,
     snapshot: Arc<RwLock<Option<RenderNode>>>,
     root_id: Id,
-    next_id: Arc<AtomicU64>,
     running: Arc<Mutex<()>>,
 }
 
@@ -71,8 +69,6 @@ impl Engine {
             sender: tx,
             snapshot,
             root_id: Id::from_u64(0),
-            // 0 is reserved for root
-            next_id: Arc::new(AtomicU64::new(1)),
             running: Arc::new(Mutex::new(())),
         }
     }
@@ -117,10 +113,7 @@ impl Engine {
     }
 
     /// Create a new document node with optional text content
-    pub fn create_node(&self, text: Option<String>) -> Id {
-        // Generate unique id locally without waiting on the data thread
-        let id_value = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let id = Id::from_u64(id_value);
+    pub fn create_node(&self, id: Id, text: Option<String>) -> Id {
         self.sender
             .send(Command::CreateNode(id, text))
             .expect("data thread down");

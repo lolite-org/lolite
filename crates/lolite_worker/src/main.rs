@@ -10,7 +10,7 @@ type EngineHandle = usize;
 
 type LoliteInitInternal = unsafe extern "C" fn(EngineHandle);
 type LoliteAddStylesheet = unsafe extern "C" fn(EngineHandle, *const c_char);
-type LoliteCreateNode = unsafe extern "C" fn(EngineHandle, *const c_char) -> u64;
+type LoliteCreateNodeInternal = unsafe extern "C" fn(EngineHandle, u64, *const c_char);
 type LoliteSetParent = unsafe extern "C" fn(EngineHandle, u64, u64);
 type LoliteSetAttribute = unsafe extern "C" fn(EngineHandle, u64, *const c_char, *const c_char);
 type LoliteRootId = unsafe extern "C" fn(EngineHandle) -> u64;
@@ -60,9 +60,9 @@ fn main() {
         let lolite_add_stylesheet: libloading::Symbol<LoliteAddStylesheet> = lib
             .get(b"lolite_add_stylesheet\0")
             .expect("worker: missing symbol lolite_add_stylesheet");
-        let lolite_create_node: libloading::Symbol<LoliteCreateNode> = lib
-            .get(b"lolite_create_node\0")
-            .expect("worker: missing symbol lolite_create_node");
+        let lolite_create_node_internal: libloading::Symbol<LoliteCreateNodeInternal> = lib
+            .get(b"lolite_create_node_internal\0")
+            .expect("worker: missing symbol lolite_create_node_internal");
         let lolite_set_parent: libloading::Symbol<LoliteSetParent> = lib
             .get(b"lolite_set_parent\0")
             .expect("worker: missing symbol lolite_set_parent");
@@ -102,23 +102,30 @@ fn main() {
                 },
                 WorkerRequest::CreateNode {
                     handle,
+                    node_id,
                     text,
-                    reply_to,
                 } => {
-                    let id = match text {
-                        None => lolite_create_node(handle as EngineHandle, std::ptr::null()),
+                    match text {
+                        None => {
+                            lolite_create_node_internal(
+                                handle as EngineHandle,
+                                node_id,
+                                std::ptr::null(),
+                            );
+                        }
                         Some(s) => match CString::new(s) {
                             Ok(c_text) => {
-                                lolite_create_node(handle as EngineHandle, c_text.as_ptr())
+                                lolite_create_node_internal(
+                                    handle as EngineHandle,
+                                    node_id,
+                                    c_text.as_ptr(),
+                                );
                             }
                             Err(_) => {
                                 eprintln!("worker: text content contains interior NUL byte");
-                                0
                             }
                         },
                     };
-
-                    let _ = reply_to.send(id);
                 }
                 WorkerRequest::SetParent {
                     handle,
