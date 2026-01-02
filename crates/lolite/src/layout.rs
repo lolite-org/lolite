@@ -162,18 +162,21 @@ impl LayoutContext {
             // Start with existing style as base (this preserves manually set properties like flex_wrap)
             let mut style = node_borrow.layout.style.as_ref().clone();
 
-            // Apply CSS rules on top of existing style
-            if let Some(class) = node_borrow.attributes.get("class") {
-                let selector = Selector::Class(class.clone());
-                let rule = self
-                    .style_sheet
-                    .rules
-                    .iter()
-                    .find(|rule| rule.selector == selector);
+            // Apply CSS rules on top of existing style.
+            // The `class` attribute is treated as a whitespace-separated list of classes.
+            if let Some(class_attr) = node_borrow.attributes.get("class") {
+                for class_name in class_attr.split_whitespace() {
+                    let selector = Selector::Class(class_name.to_string());
 
-                if let Some(rule) = rule {
-                    for declaration in &rule.declarations {
-                        style.merge(declaration);
+                    if let Some(rule) = self
+                        .style_sheet
+                        .rules
+                        .iter()
+                        .find(|rule| rule.selector == selector)
+                    {
+                        for declaration in &rule.declarations {
+                            style.merge(declaration);
+                        }
                     }
                 }
             }
