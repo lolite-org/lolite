@@ -285,6 +285,9 @@ pub fn build_render_tree(node: Rc<RefCell<Node>>) -> RenderNode {
 mod asserts;
 
 #[cfg(test)]
+mod test_html;
+
+#[cfg(test)]
 mod flex_layout_flow_tests;
 
 #[cfg(test)]

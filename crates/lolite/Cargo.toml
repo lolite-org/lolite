@@ -32,6 +32,9 @@ objc = "0.2"
 raw-window-handle = "0.6"
 core-graphics-types = "0.1"
 
+[dev-dependencies]
+html_parser = "0.7.0"
+
 [[example]]
 name = "showcase_flex"
 path = "../../examples/showcase_flex/showcase_flex.rs"
