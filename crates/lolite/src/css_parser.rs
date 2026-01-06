@@ -208,6 +208,10 @@ impl<'i> DeclarationParser<'i> for StyleDeclarationParser {
                     _ => return Err(input.new_error_for_next_token()),
                 }
             }
+            "background" => {
+                // only support color for now
+                style.background_color = Some(self.parse_color_value(input)?);
+            }
             "background-color" => {
                 style.background_color = Some(self.parse_color_value(input)?);
             }
@@ -279,6 +283,10 @@ impl<'i> DeclarationParser<'i> for StyleDeclarationParser {
                     bottom: third,
                     left: fourth,
                 });
+            }
+            "flex" => {
+                let value = input.expect_number()?;
+                style.flex_grow = Some(value as f64);
             }
             "flex-direction" => {
                 let ident = input.expect_ident()?;
