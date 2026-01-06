@@ -1,6 +1,6 @@
 use lolite_macros::MergeProperties;
 
-#[derive(Clone, Default, Debug, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct Rgba {
     pub r: u8,
     pub g: u8,
@@ -8,7 +8,7 @@ pub struct Rgba {
     pub a: u8,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 #[allow(unused)]
 pub enum Length {
     #[default]
@@ -47,7 +47,7 @@ pub struct BorderRadius {
     pub bottom_left: Length,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub enum Display {
     // Block,
     // Inline,
@@ -57,7 +57,7 @@ pub enum Display {
     // Grid,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub enum FlexDirection {
     #[default]
     Row,
@@ -66,7 +66,7 @@ pub enum FlexDirection {
     ColumnReverse,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub enum FlexWrap {
     #[default]
     NoWrap,
@@ -74,7 +74,7 @@ pub enum FlexWrap {
     WrapReverse,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub enum JustifyContent {
     #[default]
     FlexStart,
@@ -85,7 +85,7 @@ pub enum JustifyContent {
     SpaceEvenly,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub enum AlignItems {
     #[default]
     Stretch,
@@ -95,7 +95,7 @@ pub enum AlignItems {
     Baseline,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub enum AlignContent {
     #[default]
     Stretch,
@@ -107,7 +107,7 @@ pub enum AlignContent {
     SpaceEvenly,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub enum AlignSelf {
     #[default]
     Auto,

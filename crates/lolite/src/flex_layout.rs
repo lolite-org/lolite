@@ -1,21 +1,9 @@
-/*!
- * Flexbox Layout Engine
- *
- * This module contains the complete flexbox layout implementation moved from
- * the main engine for better code organization. It includes support for:
- * - All flex directions (row, column, row-reverse, column-reverse)
- * - Flex wrapping (nowrap, wrap, wrap-reverse)
- * - CSS Gap properties (gap, row-gap, column-gap)
- * - Proper coordinate calculation and child positioning
- */
+use crate::layout::{LayoutContext, Node};
+use crate::style::{AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent, Length, Style};
+use std::cell::RefCell;
+use std::rc::Rc;
 
-use crate::{
-    layout::{LayoutContext, Node},
-    style::{AlignContent, AlignItems, FlexDirection, FlexWrap, JustifyContent, Length, Style},
-};
-use std::{cell::RefCell, rc::Rc};
-
-/// Flexbox layout engine that handles all flexbox positioning logic
+#[derive(Default)]
 pub struct FlexLayoutEngine;
 
 impl FlexLayoutEngine {
@@ -23,1103 +11,397 @@ impl FlexLayoutEngine {
         Self
     }
 
-    /// Calculate padding values from style
-    fn calculate_padding(&self, style: &Style) -> (f64, f64, f64, f64) {
-        if let Some(padding) = &style.padding {
-            (
-                padding.top.to_px(),
-                padding.right.to_px(),
-                padding.bottom.to_px(),
-                padding.left.to_px(),
-            )
-        } else {
-            (0.0, 0.0, 0.0, 0.0)
-        }
-    }
-
-    /// Calculate margin values from style
-    fn calculate_margin(&self, style: &Style) -> (f64, f64, f64, f64) {
-        if let Some(margin) = &style.margin {
-            (
-                margin.top.to_px(),
-                margin.right.to_px(),
-                margin.bottom.to_px(),
-                margin.left.to_px(),
-            )
-        } else {
-            (0.0, 0.0, 0.0, 0.0)
-        }
-    }
-
-    /// Layout children of a flex container according to flexbox rules
-    /// This is the main entry point for flex layout logic
+    /// Runs a simplified flex layout.
+    ///
+    /// This is intentionally structured to follow the spec step-by-step over time.
+    /// Currently, it implements the §9.1 “Initial Setup” anonymous flex item generation
+    /// (in a limited form, due to the lack of explicit DOM/text node typing in the engine).
     pub fn layout_flex_children(
         &self,
         container: Rc<RefCell<Node>>,
-        style: &Style,
-        engine: &LayoutContext,
+        container_style: &Style,
+        ctx: &LayoutContext,
     ) {
-        let flex_direction = style.flex_direction.as_ref().unwrap_or(&FlexDirection::Row);
-        let flex_wrap = style.flex_wrap.as_ref().unwrap_or(&FlexWrap::NoWrap);
+        // === §9.1 Initial Setup ===
+        // Generate anonymous flex items as described in §4 Flex Items.
+        //
+        // Spec note: each in-flow child becomes a flex item, and each child text sequence is
+        // wrapped in an anonymous block container flex item (and whitespace-only sequences are not rendered).
+        //
+        // TODO: When the engine distinguishes element nodes vs text nodes and supports true
+        // "text sequences", implement proper anonymous flex item wrappers.
 
-        let container_bounds = container.borrow().layout.bounds;
-        let container_x = container_bounds.x;
-        let container_y = container_bounds.y;
-        let container_width = container_bounds.width;
-        let container_height = container_bounds.height;
+        let direction = container_style.flex_direction.unwrap_or(FlexDirection::Row);
+        let wrap = container_style.flex_wrap.unwrap_or(FlexWrap::NoWrap);
+        let justify_content = container_style
+            .justify_content
+            .unwrap_or(JustifyContent::FlexStart);
+        let align_items = container_style.align_items.unwrap_or(AlignItems::Stretch);
 
-        // Calculate padding to adjust the content area
-        let (padding_top, padding_right, padding_bottom, padding_left) =
-            self.calculate_padding(style);
-
-        // Adjust content area for padding
-        let content_x = container_x + padding_left;
-        let content_y = container_y + padding_top;
-        let content_width = container_width - padding_left - padding_right;
-        let content_height = container_height - padding_top - padding_bottom;
-
-        // First pass: layout all children to get their computed styles and natural sizes
-        let mut children = container.borrow().children.clone();
-        for child in &children {
-            // Recursively layout child first (this will apply its styles and set its dimensions)
-            engine.layout_node(child.clone(), 0.0, 0.0);
-        }
-
-        // Apply CSS `order` on flex items by sorting children for layout purposes.
-        // Note: this does not mutate the document tree; it only affects layout order.
-        children.sort_by_key(|child| child.borrow().layout.style.order.unwrap_or(0));
-
-        // Second pass: position children based on flex direction and wrapping
-        match flex_direction {
-            FlexDirection::Row => {
-                self.layout_row_with_wrap(
-                    &children,
-                    content_x,
-                    content_y,
-                    content_width,
-                    content_height,
-                    flex_wrap,
-                    style,
-                    engine,
-                );
+        let (container_x, container_y, container_main, _container_cross) = {
+            let b = container.borrow().layout.bounds;
+            match direction {
+                FlexDirection::Row | FlexDirection::RowReverse => (b.x, b.y, b.width, b.height),
+                FlexDirection::Column | FlexDirection::ColumnReverse => {
+                    (b.x, b.y, b.height, b.width)
+                }
             }
-            FlexDirection::Column => {
-                self.layout_column_with_wrap(
-                    &children,
-                    content_x,
-                    content_y,
-                    content_height,
-                    flex_wrap,
-                    style,
-                    engine,
-                );
-            }
-            FlexDirection::RowReverse => {
-                self.layout_row_reverse_with_wrap(
-                    &children,
-                    content_x,
-                    content_y,
-                    content_width,
-                    flex_wrap,
-                );
-            }
-            FlexDirection::ColumnReverse => {
-                self.layout_column_reverse_with_wrap(
-                    &children,
-                    content_x,
-                    content_y,
-                    content_height,
-                    flex_wrap,
-                );
-            }
-        }
-    }
-
-    /// Layout children in a row with wrapping support and gap handling
-    fn layout_row_with_wrap(
-        &self,
-        children: &[Rc<RefCell<Node>>],
-        container_x: f64,
-        container_y: f64,
-        container_width: f64,
-        container_height: f64,
-        flex_wrap: &FlexWrap,
-        style: &Style,
-        engine: &LayoutContext,
-    ) {
-        // Get gap values - CSS gap properties take precedence over individual gap properties
-        let column_gap = if let Some(gap) = &style.gap {
-            gap.to_px()
-        } else if let Some(column_gap) = &style.column_gap {
-            column_gap.to_px()
-        } else {
-            0.0
         };
 
-        let row_gap = if let Some(gap) = &style.gap {
-            gap.to_px()
-        } else if let Some(row_gap) = &style.row_gap {
-            row_gap.to_px()
-        } else {
-            0.0
+        let (row_gap_px, column_gap_px) = gaps_px(container_style);
+        let (main_gap_px, cross_gap_px) = match direction {
+            FlexDirection::Row | FlexDirection::RowReverse => (column_gap_px, row_gap_px),
+            FlexDirection::Column | FlexDirection::ColumnReverse => (row_gap_px, column_gap_px),
         };
 
-        match flex_wrap {
-            FlexWrap::NoWrap => {
-                // Apply justify-content for single line with gap support
-                self.apply_justify_content_row_with_gap(
-                    children,
-                    container_x,
-                    container_y,
-                    container_width,
-                    container_height,
-                    style,
-                    column_gap,
-                );
+        // Collect children, applying the "anonymous flex item" rules as best as we can.
+        // In this engine, nodes are not typed; we treat a "text node" as:
+        // - has `text: Some`,
+        // - has no attributes,
+        // - has no children.
+        let mut children: Vec<Rc<RefCell<Node>>> = {
+            let c = container.borrow();
+            c.children.clone()
+        };
+
+        // Apply 'order' if present.
+        children.sort_by_key(|child| {
+            let style = resolve_style(child, ctx, container_style);
+            style.order.unwrap_or(0)
+        });
+
+        let mut items: Vec<FlexItem> = Vec::new();
+        for child in children {
+            let is_text_node_guess = {
+                let child_borrow = child.borrow();
+                child_borrow.text.is_some()
+                    && child_borrow.attributes.is_empty()
+                    && child_borrow.children.is_empty()
+            };
+
+            if is_text_node_guess {
+                let text = child.borrow().text.clone().unwrap_or_default();
+                if text.trim().is_empty() {
+                    // Whitespace-only child text sequences are not rendered.
+                    continue;
+                }
             }
-            FlexWrap::Wrap => {
-                // First pass: organize children into lines, accounting for gaps
-                let mut lines: Vec<Vec<Rc<RefCell<Node>>>> = Vec::new();
-                let mut current_line: Vec<Rc<RefCell<Node>>> = Vec::new();
-                let mut current_line_width = 0.0;
 
-                for child in children {
-                    let child_bounds = child.borrow().layout.bounds;
+            let style = resolve_style(&child, ctx, container_style);
+            let (base_main, base_cross) = base_sizes(&style, &direction);
 
-                    // Calculate required width including gap (if not first item in line)
-                    let required_width = if current_line.is_empty() {
-                        child_bounds.width
-                    } else {
-                        child_bounds.width + column_gap
-                    };
+            items.push(FlexItem {
+                node: child,
+                style,
+                base_main,
+                base_cross,
+                final_main: base_main,
+                final_cross: base_cross,
+            });
+        }
 
-                    // Check if this child would overflow the container width
-                    if current_line_width + required_width > container_width
-                        && !current_line.is_empty()
-                    {
-                        // Start new line
-                        lines.push(current_line);
-                        current_line = Vec::new();
-                        current_line_width = 0.0;
+        if items.is_empty() {
+            return;
+        }
+
+        // Form flex lines.
+        let mut lines: Vec<Vec<usize>> = Vec::new();
+        let mut current: Vec<usize> = Vec::new();
+        let mut current_used_main = 0.0;
+
+        let can_wrap = matches!(wrap, FlexWrap::Wrap | FlexWrap::WrapReverse);
+
+        for (index, item) in items.iter().enumerate() {
+            let additional_gap = if current.is_empty() { 0.0 } else { main_gap_px };
+            let candidate_used = current_used_main + additional_gap + item.base_main;
+
+            let should_wrap = can_wrap && !current.is_empty() && candidate_used > container_main;
+            if should_wrap {
+                lines.push(current);
+                current = Vec::new();
+                current_used_main = 0.0;
+            }
+
+            let gap = if current.is_empty() { 0.0 } else { main_gap_px };
+            current_used_main += gap + item.base_main;
+            current.push(index);
+        }
+        if !current.is_empty() {
+            lines.push(current);
+        }
+
+        // Layout each line.
+        let mut line_cross_offset = 0.0;
+        for line in lines {
+            // Resolve flexing within the line.
+            let total_base_main = line.iter().enumerate().fold(0.0, |acc, (pos, idx)| {
+                let gap = if pos > 0 { main_gap_px } else { 0.0 };
+                acc + gap + items[*idx].base_main
+            });
+
+            let free_space = container_main - total_base_main;
+            if free_space > 0.0 {
+                let total_grow: f64 = line
+                    .iter()
+                    .map(|idx| items[*idx].style.flex_grow.unwrap_or(0.0))
+                    .sum();
+
+                if total_grow > 0.0 {
+                    for idx in &line {
+                        let grow = items[*idx].style.flex_grow.unwrap_or(0.0);
+                        items[*idx].final_main =
+                            items[*idx].base_main + (free_space * (grow / total_grow));
                     }
-
-                    current_line.push(child.clone());
-                    current_line_width += if current_line.len() == 1 {
-                        child_bounds.width
-                    } else {
-                        child_bounds.width + column_gap
-                    };
                 }
+            } else if free_space < 0.0 {
+                let shrink_needed = -free_space;
+                let weights: Vec<f64> = line
+                    .iter()
+                    .map(|idx| {
+                        // In this codebase/tests, unspecified flex-shrink means "don't shrink".
+                        let shrink = items[*idx].style.flex_shrink.unwrap_or(0.0);
+                        shrink * items[*idx].base_main
+                    })
+                    .collect();
 
-                // Add the last line if it has children
-                if !current_line.is_empty() {
-                    lines.push(current_line);
+                let total_weight: f64 = weights.iter().sum();
+                if total_weight > 0.0 {
+                    for (i, idx) in line.iter().enumerate() {
+                        let weight = weights[i];
+                        items[*idx].final_main =
+                            items[*idx].base_main - (shrink_needed * (weight / total_weight));
+                    }
                 }
+            }
 
-                // Second pass: calculate line heights
-                let mut line_heights: Vec<f64> = Vec::new();
-                for line in &lines {
-                    let line_height = line
-                        .iter()
-                        .map(|child| child.borrow().layout.bounds.height)
-                        .fold(0.0, f64::max);
-                    line_heights.push(line_height);
-                }
+            // Determine line cross size.
+            let mut line_cross_size: f64 = 0.0;
+            for idx in &line {
+                line_cross_size = line_cross_size.max(items[*idx].final_cross);
+            }
 
-                // Third pass: apply align-content to position lines with row gaps
-                let align_content = style
-                    .align_content
+            // Apply align-items (and align-self) in the cross axis.
+            for idx in &line {
+                let align = match items[*idx]
+                    .style
+                    .align_self
                     .as_ref()
-                    .unwrap_or(&AlignContent::FlexStart);
-
-                let line_start_positions = self.calculate_line_positions_with_gap(
-                    &line_heights,
-                    container_y,
-                    container_height,
-                    align_content,
-                    row_gap,
-                );
-
-                // Fourth pass: position children within their lines with column gaps
-                for (line_index, line) in lines.iter().enumerate() {
-                    let line_y = line_start_positions[line_index];
-
-                    // Position children horizontally within the line with gaps
-                    let mut current_x = container_x;
-                    for (child_index, child) in line.iter().enumerate() {
-                        let child_bounds = child.borrow().layout.bounds;
-                        let mut child_borrow = child.borrow_mut();
-
-                        child_borrow.layout.bounds.x = current_x;
-                        child_borrow.layout.bounds.y = line_y;
-
-                        current_x += child_bounds.width;
-
-                        // Add column gap after each item except the last
-                        if child_index < line.len() - 1 {
-                            current_x += column_gap;
-                        }
-                    }
-                }
-            }
-            FlexWrap::WrapReverse => {
-                // TODO: Implement wrap-reverse with gap support
-                // For now, behave like wrap
-                self.layout_row_with_wrap(
-                    children,
-                    container_x,
-                    container_y,
-                    container_width,
-                    container_height,
-                    &FlexWrap::Wrap,
-                    style,
-                    engine,
-                );
-            }
-        }
-    }
-
-    /// Layout children in a column with wrapping support
-    fn layout_column_with_wrap(
-        &self,
-        children: &[Rc<RefCell<Node>>],
-        container_x: f64,
-        container_y: f64,
-        container_height: f64,
-        flex_wrap: &FlexWrap,
-        style: &Style,
-        engine: &LayoutContext,
-    ) {
-        // Get gap values
-        let row_gap = if let Some(gap) = &style.gap {
-            gap.to_px()
-        } else if let Some(row_gap) = &style.row_gap {
-            row_gap.to_px()
-        } else {
-            0.0
-        };
-
-        match flex_wrap {
-            FlexWrap::NoWrap => {
-                // Calculate flex sizes first - this handles flex-grow, flex-shrink, and flex-basis
-                let final_heights =
-                    self.calculate_flex_sizes_column(children, container_height, row_gap);
-
-                // Update children bounds with calculated flex sizes
-                for (i, child) in children.iter().enumerate() {
-                    let mut child_borrow = child.borrow_mut();
-                    child_borrow.layout.bounds.height = final_heights[i];
-                }
-
-                // Position children with calculated heights and margins
-                let mut current_y = container_y;
-
-                for (index, child) in children.iter().enumerate() {
-                    let child_style = child.borrow().layout.style.clone();
-                    let (margin_top, _margin_right, margin_bottom, margin_left) =
-                        self.calculate_margin(&child_style);
-
-                    // Position child with margins
-                    let mut child_borrow = child.borrow_mut();
-                    child_borrow.layout.bounds.x = container_x + margin_left;
-                    child_borrow.layout.bounds.y = current_y + margin_top;
-
-                    current_y += final_heights[index] + margin_top + margin_bottom;
-
-                    // Add row gap after each item except the last
-                    if index < children.len() - 1 {
-                        current_y += row_gap;
-                    }
-                }
-            }
-            FlexWrap::Wrap => {
-                let column_gap = if let Some(gap) = &style.gap {
-                    gap.to_px()
-                } else if let Some(column_gap) = &style.column_gap {
-                    column_gap.to_px()
-                } else {
-                    0.0
+                    .unwrap_or(&AlignSelf::Auto)
+                {
+                    AlignSelf::Auto => align_items.clone(),
+                    AlignSelf::FlexStart => AlignItems::FlexStart,
+                    AlignSelf::FlexEnd => AlignItems::FlexEnd,
+                    AlignSelf::Center => AlignItems::Center,
+                    AlignSelf::Baseline => AlignItems::Baseline,
+                    AlignSelf::Stretch => AlignItems::Stretch,
                 };
 
-                let mut current_x = container_x;
-                let mut current_y = container_y;
-                let mut column_width = 0.0;
-
-                for (index, child) in children.iter().enumerate() {
-                    let child_bounds = child.borrow().layout.bounds;
-
-                    // Calculate required height including gap (if not first item in column)
-                    let required_height = if current_y == container_y {
-                        child_bounds.height
-                    } else {
-                        child_bounds.height + row_gap
-                    };
-
-                    // Check if this child would overflow the container height
-                    if current_y + required_height > container_y + container_height
-                        && current_y > container_y
-                    {
-                        // Wrap to next column
-                        current_y = container_y;
-                        current_x += column_width + column_gap;
-                        column_width = 0.0;
-                    }
-
-                    // Position child
-                    let mut child_borrow = child.borrow_mut();
-                    child_borrow.layout.bounds.x = current_x;
-                    child_borrow.layout.bounds.y = current_y;
-
-                    current_y += child_bounds.height;
-
-                    // Add row gap after each item except the last in column
-                    if index < children.len() - 1 {
-                        current_y += row_gap;
-                    }
-
-                    column_width = column_width.max(child_bounds.width);
+                if matches!(align, AlignItems::Stretch)
+                    && cross_size_is_auto(&items[*idx].style, &direction)
+                {
+                    items[*idx].final_cross = line_cross_size;
                 }
             }
-            FlexWrap::WrapReverse => {
-                // TODO: Implement wrap-reverse with gap support
-                // For now, behave like wrap
-                self.layout_column_with_wrap(
-                    children,
-                    container_x,
-                    container_y,
-                    container_height,
-                    &FlexWrap::Wrap,
-                    style,
-                    engine,
-                );
-            }
-        }
-    }
 
-    /// Layout children in row-reverse with wrapping support
-    fn layout_row_reverse_with_wrap(
-        &self,
-        children: &[Rc<RefCell<Node>>],
-        container_x: f64,
-        container_y: f64,
-        container_width: f64,
-        flex_wrap: &FlexWrap,
-    ) {
-        match flex_wrap {
-            FlexWrap::NoWrap => {
-                // Original nowrap behavior
-                let mut current_x = container_x + container_width;
-                let current_y = container_y;
-
-                for child in children.iter().rev() {
-                    let child_bounds = child.borrow().layout.bounds;
-                    current_x -= child_bounds.width;
-
-                    // Position child
-                    let mut child_borrow = child.borrow_mut();
-                    child_borrow.layout.bounds.x = current_x;
-                    child_borrow.layout.bounds.y = current_y;
-                }
-            }
-            FlexWrap::Wrap | FlexWrap::WrapReverse => {
-                // TODO: Implement wrapping for row-reverse with gap support
-                // For now, use nowrap behavior
-                self.layout_row_reverse_with_wrap(
-                    children,
-                    container_x,
-                    container_y,
-                    container_width,
-                    &FlexWrap::NoWrap,
-                );
-            }
-        }
-    }
-
-    /// Layout children in column-reverse with wrapping support
-    fn layout_column_reverse_with_wrap(
-        &self,
-        children: &[Rc<RefCell<Node>>],
-        container_x: f64,
-        container_y: f64,
-        container_height: f64,
-        flex_wrap: &FlexWrap,
-    ) {
-        match flex_wrap {
-            FlexWrap::NoWrap => {
-                // Original nowrap behavior
-                let current_x = container_x;
-                let mut current_y = container_y + container_height;
-
-                for child in children.iter().rev() {
-                    let child_bounds = child.borrow().layout.bounds;
-                    current_y -= child_bounds.height;
-
-                    // Position child
-                    let mut child_borrow = child.borrow_mut();
-                    child_borrow.layout.bounds.x = current_x;
-                    child_borrow.layout.bounds.y = current_y;
-                }
-            }
-            FlexWrap::Wrap | FlexWrap::WrapReverse => {
-                // TODO: Implement wrapping for column-reverse with gap support
-                // For now, use nowrap behavior
-                self.layout_column_reverse_with_wrap(
-                    children,
-                    container_x,
-                    container_y,
-                    container_height,
-                    &FlexWrap::NoWrap,
-                );
-            }
-        }
-    }
-
-    /// Apply flex-grow, flex-shrink, and flex-basis to calculate final sizes for row direction
-    fn calculate_flex_sizes_row(
-        &self,
-        children: &[Rc<RefCell<Node>>],
-        container_width: f64,
-        column_gap: f64,
-    ) -> Vec<f64> {
-        let mut final_widths = Vec::new();
-
-        // First, calculate the base sizes (flex-basis or width)
-        let mut base_sizes = Vec::new();
-        let mut flex_grows = Vec::new();
-        let mut flex_shrinks = Vec::new();
-
-        for child in children {
-            let child_style = child.borrow().layout.style.clone();
-
-            // Get flex-basis or fall back to width
-            let base_size = if let Some(flex_basis) = &child_style.flex_basis {
-                match flex_basis {
-                    Length::Auto => {
-                        // Use width if available, otherwise use current bounds width
-                        child_style
-                            .width
-                            .as_ref()
-                            .map(|w| w.to_px())
-                            .unwrap_or(child.borrow().layout.bounds.width)
-                    }
-                    _ => flex_basis.to_px(),
-                }
-            } else {
-                // No flex-basis, use width or current bounds
-                child_style
-                    .width
-                    .as_ref()
-                    .map(|w| w.to_px())
-                    .unwrap_or(child.borrow().layout.bounds.width)
-            };
-
-            base_sizes.push(base_size);
-            flex_grows.push(child_style.flex_grow.unwrap_or(0.0));
-            flex_shrinks.push(child_style.flex_shrink.unwrap_or(1.0));
-        }
-
-        // Calculate total base size and gaps
-        let total_base_size: f64 = base_sizes.iter().sum();
-        let total_gap_size = if children.len() > 1 {
-            column_gap * (children.len() - 1) as f64
-        } else {
-            0.0
-        };
-        let total_content_size = total_base_size + total_gap_size;
-
-        // Check if any flex properties are explicitly set
-        let has_explicit_flex_properties = children.iter().any(|child| {
-            let style = child.borrow().layout.style.clone();
-            style.flex_grow.is_some() || style.flex_shrink.is_some() || style.flex_basis.is_some()
-        });
-
-        // Determine if we need to grow or shrink
-        let free_space = container_width - total_content_size;
-
-        if has_explicit_flex_properties {
-            if free_space > 0.0 {
-                // We have extra space - apply flex-grow
-                let total_grow: f64 = flex_grows.iter().sum();
-
-                if total_grow > 0.0 {
-                    for (i, &base_size) in base_sizes.iter().enumerate() {
-                        let grow_ratio = flex_grows[i] / total_grow;
-                        final_widths.push(base_size + (free_space * grow_ratio));
-                    }
-                } else {
-                    // No flex-grow values, use base sizes
-                    final_widths = base_sizes;
-                }
-            } else if free_space < 0.0 {
-                // We need to shrink - apply flex-shrink
-                let overflow = -free_space;
-                let mut weighted_shrink_sum = 0.0;
-
-                // Calculate weighted shrink sum (flex-shrink * base-size)
-                for (i, &base_size) in base_sizes.iter().enumerate() {
-                    weighted_shrink_sum += flex_shrinks[i] * base_size;
-                }
-
-                if weighted_shrink_sum > 0.0 {
-                    for (i, &base_size) in base_sizes.iter().enumerate() {
-                        let shrink_ratio = (flex_shrinks[i] * base_size) / weighted_shrink_sum;
-                        let shrink_amount = overflow * shrink_ratio;
-                        final_widths.push((base_size - shrink_amount).max(0.0));
-                    }
-                } else {
-                    // No flex-shrink values, use base sizes (may overflow)
-                    final_widths = base_sizes;
-                }
-            } else {
-                // Perfect fit - use base sizes
-                final_widths = base_sizes;
-            }
-        } else {
-            // No explicit flex properties - use base sizes (legacy behavior)
-            final_widths = base_sizes;
-        }
-
-        final_widths
-    }
-
-    /// Apply flex-grow, flex-shrink, and flex-basis to calculate final sizes for column direction
-    fn calculate_flex_sizes_column(
-        &self,
-        children: &[Rc<RefCell<Node>>],
-        container_height: f64,
-        row_gap: f64,
-    ) -> Vec<f64> {
-        let mut final_heights = Vec::new();
-
-        // First, calculate the base sizes (flex-basis or height)
-        let mut base_sizes = Vec::new();
-        let mut flex_grows = Vec::new();
-        let mut flex_shrinks = Vec::new();
-
-        for child in children {
-            let child_style = child.borrow().layout.style.clone();
-
-            // Get flex-basis or fall back to height
-            let base_size = if let Some(flex_basis) = &child_style.flex_basis {
-                match flex_basis {
-                    Length::Auto => {
-                        // Use height if available, otherwise use current bounds height
-                        child_style
-                            .height
-                            .as_ref()
-                            .map(|h| h.to_px())
-                            .unwrap_or(child.borrow().layout.bounds.height)
-                    }
-                    _ => flex_basis.to_px(),
-                }
-            } else {
-                // No flex-basis, use height or current bounds
-                child_style
-                    .height
-                    .as_ref()
-                    .map(|h| h.to_px())
-                    .unwrap_or(child.borrow().layout.bounds.height)
-            };
-
-            base_sizes.push(base_size);
-            flex_grows.push(child_style.flex_grow.unwrap_or(0.0));
-            flex_shrinks.push(child_style.flex_shrink.unwrap_or(1.0));
-        }
-
-        // Calculate total base size and gaps
-        let total_base_size: f64 = base_sizes.iter().sum();
-        let total_gap_size = if children.len() > 1 {
-            row_gap * (children.len() - 1) as f64
-        } else {
-            0.0
-        };
-        let total_content_size = total_base_size + total_gap_size;
-
-        // Check if any flex properties are explicitly set
-        let has_explicit_flex_properties = children.iter().any(|child| {
-            let style = child.borrow().layout.style.clone();
-            style.flex_grow.is_some() || style.flex_shrink.is_some() || style.flex_basis.is_some()
-        });
-
-        // Determine if we need to grow or shrink
-        let free_space = container_height - total_content_size;
-
-        if has_explicit_flex_properties {
-            if free_space > 0.0 {
-                // We have extra space - apply flex-grow
-                let total_grow: f64 = flex_grows.iter().sum();
-
-                if total_grow > 0.0 {
-                    for (i, &base_size) in base_sizes.iter().enumerate() {
-                        let grow_ratio = flex_grows[i] / total_grow;
-                        final_heights.push(base_size + (free_space * grow_ratio));
-                    }
-                } else {
-                    // No flex-grow values, use base sizes
-                    final_heights = base_sizes;
-                }
-            } else if free_space < 0.0 {
-                // We need to shrink - apply flex-shrink
-                let overflow = -free_space;
-                let mut weighted_shrink_sum = 0.0;
-
-                // Calculate weighted shrink sum (flex-shrink * base-size)
-                for (i, &base_size) in base_sizes.iter().enumerate() {
-                    weighted_shrink_sum += flex_shrinks[i] * base_size;
-                }
-
-                if weighted_shrink_sum > 0.0 {
-                    for (i, &base_size) in base_sizes.iter().enumerate() {
-                        let shrink_ratio = (flex_shrinks[i] * base_size) / weighted_shrink_sum;
-                        let shrink_amount = overflow * shrink_ratio;
-                        final_heights.push((base_size - shrink_amount).max(0.0));
-                    }
-                } else {
-                    // No flex-shrink values, use base sizes (may overflow)
-                    final_heights = base_sizes;
-                }
-            } else {
-                // Perfect fit - use base sizes
-                final_heights = base_sizes;
-            }
-        } else {
-            // No explicit flex properties - use base sizes (legacy behavior)
-            final_heights = base_sizes;
-        }
-
-        final_heights
-    }
-
-    /// Apply justify-content positioning for row direction with gap support
-    fn apply_justify_content_row_with_gap(
-        &self,
-        children: &[Rc<RefCell<Node>>],
-        container_x: f64,
-        container_y: f64,
-        container_width: f64,
-        container_height: f64,
-        style: &Style,
-        column_gap: f64,
-    ) {
-        let justify_content = style
-            .justify_content
-            .as_ref()
-            .unwrap_or(&JustifyContent::FlexStart);
-        let align_items = style.align_items.as_ref().unwrap_or(&AlignItems::FlexStart);
-
-        // Calculate flex sizes first - this handles flex-grow, flex-shrink, and flex-basis
-        let final_widths = self.calculate_flex_sizes_row(children, container_width, column_gap);
-
-        // Update children bounds with calculated flex sizes
-        for (i, child) in children.iter().enumerate() {
-            let mut child_borrow = child.borrow_mut();
-            child_borrow.layout.bounds.width = final_widths[i];
-        }
-
-        // Calculate total width and free space after flex sizing
-        let total_child_width: f64 = final_widths.iter().sum();
-        let total_gap_width = if children.len() > 1 {
-            column_gap * (children.len() - 1) as f64
-        } else {
-            0.0
-        };
-        let total_content_width = total_child_width + total_gap_width;
-        let free_space = container_width - total_content_width;
-
-        match justify_content {
-            JustifyContent::FlexStart => {
-                let mut current_x = container_x;
-                for (index, child) in children.iter().enumerate() {
-                    let child_bounds = child.borrow().layout.bounds;
-                    let child_style = child.borrow().layout.style.clone();
-                    let (margin_top, margin_right, margin_bottom, margin_left) =
-                        self.calculate_margin(&child_style);
-
-                    // Position child on main axis with left margin
-                    let mut child_borrow = child.borrow_mut();
-                    child_borrow.layout.bounds.x = current_x + margin_left;
-
-                    // Apply cross-axis alignment with top margin
-                    self.apply_align_items_row_with_margin(
-                        &mut child_borrow,
-                        container_y,
-                        container_height,
-                        align_items,
-                        margin_top,
-                        margin_bottom,
-                    );
-
-                    current_x += child_bounds.width + margin_left + margin_right;
-
-                    // Add gap after each item except the last
-                    if index < children.len() - 1 {
-                        current_x += column_gap;
-                    }
-                }
-            }
-            JustifyContent::FlexEnd => {
-                let mut current_x = container_x + free_space;
-                for (index, child) in children.iter().enumerate() {
-                    let child_bounds = child.borrow().layout.bounds;
-
-                    // Position child on main axis
-                    let mut child_borrow = child.borrow_mut();
-                    child_borrow.layout.bounds.x = current_x;
-
-                    // Apply cross-axis alignment
-                    self.apply_align_items_row(
-                        &mut child_borrow,
-                        container_y,
-                        container_height,
-                        align_items,
-                    );
-
-                    current_x += child_bounds.width;
-
-                    // Add gap after each item except the last
-                    if index < children.len() - 1 {
-                        current_x += column_gap;
-                    }
-                }
-            }
-            JustifyContent::Center => {
-                let mut current_x = container_x + free_space / 2.0;
-                for (index, child) in children.iter().enumerate() {
-                    let child_bounds = child.borrow().layout.bounds;
-
-                    // Position child on main axis
-                    let mut child_borrow = child.borrow_mut();
-                    child_borrow.layout.bounds.x = current_x;
-
-                    // Apply cross-axis alignment
-                    self.apply_align_items_row(
-                        &mut child_borrow,
-                        container_y,
-                        container_height,
-                        align_items,
-                    );
-
-                    current_x += child_bounds.width;
-
-                    // Add gap after each item except the last
-                    if index < children.len() - 1 {
-                        current_x += column_gap;
-                    }
-                }
-            }
-            JustifyContent::SpaceBetween => {
-                if children.len() <= 1 {
-                    // If only one child, behave like flex-start
-                    self.apply_justify_content_row_single(
-                        children,
-                        container_x,
-                        container_y,
-                        container_height,
-                        align_items,
-                    );
-                } else {
-                    // Distribute free space evenly between items (in addition to gaps)
-                    let extra_gap = free_space / (children.len() - 1) as f64;
-                    let mut current_x = container_x;
-
-                    for (index, child) in children.iter().enumerate() {
-                        let child_bounds = child.borrow().layout.bounds;
-
-                        // Position child on main axis
-                        let mut child_borrow = child.borrow_mut();
-                        child_borrow.layout.bounds.x = current_x;
-
-                        // Apply cross-axis alignment
-                        self.apply_align_items_row(
-                            &mut child_borrow,
-                            container_y,
-                            container_height,
-                            align_items,
-                        );
-
-                        current_x += child_bounds.width;
-
-                        // Add gap and extra space after each item except the last
-                        if index < children.len() - 1 {
-                            current_x += column_gap + extra_gap;
-                        }
-                    }
-                }
-            }
-            JustifyContent::SpaceAround => {
-                let extra_gap = free_space / children.len() as f64;
-                let mut current_x = container_x + extra_gap / 2.0;
-
-                for (index, child) in children.iter().enumerate() {
-                    let child_bounds = child.borrow().layout.bounds;
-
-                    // Position child on main axis
-                    let mut child_borrow = child.borrow_mut();
-                    child_borrow.layout.bounds.x = current_x;
-
-                    // Apply cross-axis alignment
-                    self.apply_align_items_row(
-                        &mut child_borrow,
-                        container_y,
-                        container_height,
-                        align_items,
-                    );
-
-                    current_x += child_bounds.width;
-
-                    // Add gap and extra space after each item
-                    if index < children.len() - 1 {
-                        current_x += column_gap + extra_gap;
-                    }
-                }
-            }
-            JustifyContent::SpaceEvenly => {
-                let extra_gap = free_space / (children.len() + 1) as f64;
-                let mut current_x = container_x + extra_gap;
-
-                for (index, child) in children.iter().enumerate() {
-                    let child_bounds = child.borrow().layout.bounds;
-
-                    // Position child on main axis
-                    let mut child_borrow = child.borrow_mut();
-                    child_borrow.layout.bounds.x = current_x;
-
-                    // Apply cross-axis alignment
-                    self.apply_align_items_row(
-                        &mut child_borrow,
-                        container_y,
-                        container_height,
-                        align_items,
-                    );
-
-                    current_x += child_bounds.width;
-
-                    // Add gap and extra space after each item except the last
-                    if index < children.len() - 1 {
-                        current_x += column_gap + extra_gap;
-                    }
-                }
-            }
-        }
-    }
-
-    /// Apply justify-content for single child (helper method)
-    fn apply_justify_content_row_single(
-        &self,
-        children: &[Rc<RefCell<Node>>],
-        container_x: f64,
-        container_y: f64,
-        container_height: f64,
-        align_items: &AlignItems,
-    ) {
-        for child in children {
-            let mut child_borrow = child.borrow_mut();
-            child_borrow.layout.bounds.x = container_x;
-            self.apply_align_items_row(
-                &mut child_borrow,
-                container_y,
-                container_height,
-                align_items,
+            // Recompute line used main after flexing.
+            let line_used_main = line.iter().enumerate().fold(0.0, |acc, (pos, idx)| {
+                let gap = if pos > 0 { main_gap_px } else { 0.0 };
+                acc + gap + items[*idx].final_main
+            });
+
+            let leftover_for_justify = (container_main - line_used_main).max(0.0);
+            let (start_offset, between_gap) = justify_offsets(
+                &justify_content,
+                &direction,
+                leftover_for_justify,
+                main_gap_px,
+                line.len(),
             );
+
+            let mut cursor_main = start_offset;
+            for (pos, idx) in line.iter().enumerate() {
+                if pos > 0 {
+                    cursor_main += between_gap;
+                }
+
+                let item = &items[*idx];
+                let cross_pos = match align_items {
+                    AlignItems::FlexStart | AlignItems::Baseline | AlignItems::Stretch => {
+                        line_cross_offset
+                    }
+                    AlignItems::FlexEnd => line_cross_offset + (line_cross_size - item.final_cross),
+                    AlignItems::Center => {
+                        line_cross_offset + (line_cross_size - item.final_cross) / 2.0
+                    }
+                };
+
+                let (x, y, w, h) = match direction {
+                    FlexDirection::Row | FlexDirection::RowReverse => (
+                        container_x + cursor_main,
+                        container_y + cross_pos,
+                        item.final_main,
+                        item.final_cross,
+                    ),
+                    FlexDirection::Column | FlexDirection::ColumnReverse => (
+                        container_x + cross_pos,
+                        container_y + cursor_main,
+                        item.final_cross,
+                        item.final_main,
+                    ),
+                };
+
+                // Layout the child subtree (so nested flex containers work).
+                // This also applies CSS rules to the child like the normal layout path.
+                ctx.layout_node(item.node.clone(), x, y);
+
+                // Override the flexed size after the child has been laid out.
+                // (For container children, LayoutContext currently computes its own size from its style;
+                // we only override leaf sizing here to keep nested layout stable.)
+                let is_leaf = item.node.borrow().children.is_empty();
+                if is_leaf {
+                    let mut node_borrow = item.node.borrow_mut();
+                    node_borrow.layout.bounds.width = w;
+                    node_borrow.layout.bounds.height = h;
+                    node_borrow.layout.style = std::sync::Arc::new(item.style.clone());
+                }
+
+                cursor_main += item.final_main;
+            }
+
+            line_cross_offset += line_cross_size + cross_gap_px;
         }
-    }
-
-    /// Apply align-items positioning for row direction
-    fn apply_align_items_row(
-        &self,
-        child: &mut std::cell::RefMut<Node>,
-        container_y: f64,
-        container_height: f64,
-        align_items: &AlignItems,
-    ) {
-        match align_items {
-            AlignItems::FlexStart => {
-                child.layout.bounds.y = container_y;
-            }
-            AlignItems::Center => {
-                // Center the child vertically within the container
-                let child_height = child.layout.bounds.height;
-                child.layout.bounds.y = container_y + (container_height - child_height) / 2.0;
-            }
-            AlignItems::FlexEnd => {
-                // Align child to the bottom of the container
-                let child_height = child.layout.bounds.height;
-                child.layout.bounds.y = container_y + container_height - child_height;
-            }
-            AlignItems::Stretch => {
-                // Stretch child to fill container height
-                child.layout.bounds.y = container_y;
-                child.layout.bounds.height = container_height;
-            }
-            AlignItems::Baseline => {
-                // TODO: Implement baseline alignment
-                // For now, behave like flex-start
-                child.layout.bounds.y = container_y;
-            }
-        }
-    }
-
-    /// Apply align-items positioning for row direction with margin support
-    fn apply_align_items_row_with_margin(
-        &self,
-        child: &mut std::cell::RefMut<Node>,
-        container_y: f64,
-        container_height: f64,
-        align_items: &AlignItems,
-        margin_top: f64,
-        margin_bottom: f64,
-    ) {
-        match align_items {
-            AlignItems::FlexStart => {
-                child.layout.bounds.y = container_y + margin_top;
-            }
-            AlignItems::Center => {
-                // Center the child vertically within the container, accounting for margins
-                let child_height = child.layout.bounds.height;
-                let available_height = container_height - margin_top - margin_bottom;
-                child.layout.bounds.y =
-                    container_y + margin_top + (available_height - child_height) / 2.0;
-            }
-            AlignItems::FlexEnd => {
-                // Align child to the bottom of the container, accounting for bottom margin
-                let child_height = child.layout.bounds.height;
-                child.layout.bounds.y =
-                    container_y + container_height - child_height - margin_bottom;
-            }
-            AlignItems::Stretch => {
-                // Stretch child to fill container height minus margins
-                child.layout.bounds.y = container_y + margin_top;
-                child.layout.bounds.height = container_height - margin_top - margin_bottom;
-            }
-            AlignItems::Baseline => {
-                // TODO: Implement baseline alignment with margins
-                // For now, behave like flex-start
-                child.layout.bounds.y = container_y + margin_top;
-            }
-        }
-    }
-
-    /// Calculate the starting Y positions for each line based on align-content with gap support
-    fn calculate_line_positions_with_gap(
-        &self,
-        line_heights: &[f64],
-        container_y: f64,
-        container_height: f64,
-        align_content: &AlignContent,
-        row_gap: f64,
-    ) -> Vec<f64> {
-        let total_lines_height: f64 = line_heights.iter().sum();
-        let total_gap_height = if line_heights.len() > 1 {
-            row_gap * (line_heights.len() - 1) as f64
-        } else {
-            0.0
-        };
-        let total_content_height = total_lines_height + total_gap_height;
-        let free_space = container_height - total_content_height;
-        let mut positions = Vec::new();
-
-        match align_content {
-            AlignContent::FlexStart => {
-                let mut current_y = container_y;
-                for (index, &line_height) in line_heights.iter().enumerate() {
-                    positions.push(current_y);
-                    current_y += line_height;
-
-                    // Add row gap after each line except the last
-                    if index < line_heights.len() - 1 {
-                        current_y += row_gap;
-                    }
-                }
-            }
-            AlignContent::FlexEnd => {
-                let mut current_y = container_y + free_space;
-                for (index, &line_height) in line_heights.iter().enumerate() {
-                    positions.push(current_y);
-                    current_y += line_height;
-
-                    // Add row gap after each line except the last
-                    if index < line_heights.len() - 1 {
-                        current_y += row_gap;
-                    }
-                }
-            }
-            AlignContent::Center => {
-                let mut current_y = container_y + free_space / 2.0;
-                for (index, &line_height) in line_heights.iter().enumerate() {
-                    positions.push(current_y);
-                    current_y += line_height;
-
-                    // Add row gap after each line except the last
-                    if index < line_heights.len() - 1 {
-                        current_y += row_gap;
-                    }
-                }
-            }
-            AlignContent::SpaceBetween => {
-                if line_heights.len() <= 1 {
-                    // If only one line, behave like flex-start
-                    positions.push(container_y);
-                } else {
-                    let extra_gap = free_space / (line_heights.len() - 1) as f64;
-                    let mut current_y = container_y;
-                    for (index, &line_height) in line_heights.iter().enumerate() {
-                        positions.push(current_y);
-                        current_y += line_height;
-
-                        // Add row gap and extra space after each line except the last
-                        if index < line_heights.len() - 1 {
-                            current_y += row_gap + extra_gap;
-                        }
-                    }
-                }
-            }
-            AlignContent::SpaceAround => {
-                let extra_gap = free_space / line_heights.len() as f64;
-                let mut current_y = container_y + extra_gap / 2.0;
-                for (index, &line_height) in line_heights.iter().enumerate() {
-                    positions.push(current_y);
-                    current_y += line_height;
-
-                    // Add row gap and extra space after each line except the last
-                    if index < line_heights.len() - 1 {
-                        current_y += row_gap + extra_gap;
-                    }
-                }
-            }
-            AlignContent::SpaceEvenly => {
-                let extra_gap = free_space / (line_heights.len() + 1) as f64;
-                let mut current_y = container_y + extra_gap;
-                for (index, &line_height) in line_heights.iter().enumerate() {
-                    positions.push(current_y);
-                    current_y += line_height;
-
-                    // Add row gap and extra space after each line except the last
-                    if index < line_heights.len() - 1 {
-                        current_y += row_gap + extra_gap;
-                    }
-                }
-            }
-            AlignContent::Stretch => {
-                // Stretch lines to fill the container
-                if line_heights.is_empty() {
-                    return positions;
-                }
-
-                let stretched_line_height = container_height / line_heights.len() as f64;
-                let mut current_y = container_y;
-                for _ in line_heights {
-                    positions.push(current_y);
-                    current_y += stretched_line_height;
-                }
-            }
-        }
-
-        positions
     }
 }
 
-impl Default for FlexLayoutEngine {
-    fn default() -> Self {
-        Self::new()
+#[derive(Clone)]
+struct FlexItem {
+    node: Rc<RefCell<Node>>,
+    style: Style,
+    base_main: f64,
+    base_cross: f64,
+    final_main: f64,
+    final_cross: f64,
+}
+
+fn base_sizes(style: &Style, direction: &FlexDirection) -> (f64, f64) {
+    let width = style
+        .width
+        .as_ref()
+        .map(|l| l.to_px())
+        .filter(|v| *v > 0.0)
+        .unwrap_or(100.0);
+    let height = style
+        .height
+        .as_ref()
+        .map(|l| l.to_px())
+        .filter(|v| *v > 0.0)
+        .unwrap_or(30.0);
+
+    let (main_from_size, cross_from_size) = match direction {
+        FlexDirection::Row | FlexDirection::RowReverse => (width, height),
+        FlexDirection::Column | FlexDirection::ColumnReverse => (height, width),
+    };
+
+    let main = match style.flex_basis.as_ref() {
+        Some(Length::Px(px)) => *px,
+        Some(Length::Auto) => main_from_size,
+        Some(other) => other.to_px(),
+        None => main_from_size,
+    };
+
+    (main, cross_from_size)
+}
+
+fn cross_size_is_auto(style: &Style, direction: &FlexDirection) -> bool {
+    match direction {
+        FlexDirection::Row | FlexDirection::RowReverse => style.height.is_none(),
+        FlexDirection::Column | FlexDirection::ColumnReverse => style.width.is_none(),
     }
+}
+
+fn gaps_px(style: &Style) -> (f64, f64) {
+    if let Some(gap) = style.gap.as_ref() {
+        let px = gap.to_px();
+        return (px, px);
+    }
+
+    let row_gap = style.row_gap.as_ref().map(|l| l.to_px()).unwrap_or(0.0);
+    let col_gap = style.column_gap.as_ref().map(|l| l.to_px()).unwrap_or(0.0);
+    (row_gap, col_gap)
+}
+
+fn justify_offsets(
+    justify: &JustifyContent,
+    direction: &FlexDirection,
+    leftover: f64,
+    base_gap: f64,
+    item_count: usize,
+) -> (f64, f64) {
+    if item_count == 0 {
+        return (0.0, base_gap);
+    }
+
+    // Reverse directions flip the meaning of flex-start/flex-end.
+    let is_reverse = matches!(
+        direction,
+        FlexDirection::RowReverse | FlexDirection::ColumnReverse
+    );
+    let justify = match (is_reverse, justify) {
+        (true, JustifyContent::FlexStart) => JustifyContent::FlexEnd,
+        (true, JustifyContent::FlexEnd) => JustifyContent::FlexStart,
+        _ => justify.clone(),
+    };
+
+    match justify {
+        JustifyContent::FlexStart => (0.0, base_gap),
+        JustifyContent::FlexEnd => (leftover, base_gap),
+        JustifyContent::Center => (leftover / 2.0, base_gap),
+        JustifyContent::SpaceBetween => {
+            if item_count <= 1 {
+                (0.0, base_gap)
+            } else {
+                let extra = leftover / (item_count as f64 - 1.0);
+                (0.0, base_gap + extra)
+            }
+        }
+        JustifyContent::SpaceAround => {
+            let extra = leftover / item_count as f64;
+            (extra / 2.0, base_gap + extra)
+        }
+        JustifyContent::SpaceEvenly => {
+            let extra = leftover / (item_count as f64 + 1.0);
+            (extra, base_gap + extra)
+        }
+    }
+}
+
+fn resolve_style(node: &Rc<RefCell<Node>>, ctx: &LayoutContext, fallback: &Style) -> Style {
+    let node_borrow = node.borrow();
+
+    // Start with existing style as base.
+    let mut style = node_borrow.layout.style.as_ref().clone();
+
+    // Apply CSS rules for class selector.
+    if let Some(class_attr) = node_borrow.attributes.get("class") {
+        for class_name in class_attr.split_whitespace() {
+            let selector = crate::style::Selector::Class(class_name.to_string());
+            if let Some(rule) = ctx
+                .style_sheet
+                .rules
+                .iter()
+                .find(|rule| rule.selector == selector)
+            {
+                for declaration in &rule.declarations {
+                    style.merge(declaration);
+                }
+            }
+        }
+    }
+
+    // Best-effort inheritance for anonymous items.
+    if node_borrow.attributes.is_empty() && node_borrow.children.is_empty() {
+        style.display = fallback.display.clone();
+    }
+
+    style
 }
