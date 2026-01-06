@@ -30,6 +30,7 @@ impl Length {
 }
 
 #[derive(Clone, Default)]
+#[allow(unused)]
 pub struct Extend {
     pub top: Length,
     pub right: Length,

@@ -48,6 +48,7 @@ pub struct Engine {
     message_sender: WindowMessageSender,
 }
 
+#[derive(Default)]
 pub struct Params {
     pub on_click: Option<Box<dyn Fn(f64, f64, Vec<Id>)>>,
 }

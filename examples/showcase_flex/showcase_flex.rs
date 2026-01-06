@@ -198,6 +198,7 @@ fn main() {
     border-width: 1px;
     border-color: #0056b3;
     background-color: #dde9ff;
+    width: 200px;
 }
 
 .flex_container {

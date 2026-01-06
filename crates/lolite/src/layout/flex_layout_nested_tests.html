@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+
+<div class="flex_container">
+  <div class="child1">
+    <div class="nested_child">nested</div>
+    <div class="nested_child grow">nested</div>
+    <div class="nested_child">nested</div>
+    <div class="nested_child">nested</div>
+  </div>
+  <div class="child2">
+    child2
+  </div>
+</div>
+<style>
+  .flex_container {
+    display: flex;
+    flex-direction: row;
+    width: 400px;
+    height: 200px;
+  }
+
+  .child1 {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: wrap;
+  }
+
+  .grow {
+    flex: 1;
+  }
+
+  .child2 {
+    flex: 1;
+    background-color: red;
+  }
+
+  .nested_child {
+    height: 40px;
+    width: 60px;
+    background: green;
+  }
+</style>
