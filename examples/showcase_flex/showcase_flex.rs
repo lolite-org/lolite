@@ -62,11 +62,15 @@ struct State {
     shrink: bool,
     basis: bool,
     flex: bool,
+    previous_container_classes: String,
+    previous_item1_classes: String,
+    previous_item2_classes: String,
+    previous_item3_classes: String,
 }
 
 fn apply_state(
     engine: &Engine,
-    state: &State,
+    state: &mut State,
     flex_container: Id,
     item1: Id,
     item2: Id,
@@ -112,14 +116,17 @@ fn apply_state(
     container_classes.push(align_items_class);
     container_classes.push(align_content_class);
     container_classes.push(gap_class);
+    let container_classes_joined = container_classes.join(" ");
 
-    engine.set_attribute(
-        flex_container,
-        "class".to_owned(),
-        container_classes.join(" "),
-    );
-
-    println!("Applied classes to container: {:?}", container_classes);
+    if state.previous_container_classes != container_classes_joined {
+        println!("Container classes changed: {container_classes_joined}");
+        engine.set_attribute(
+            flex_container,
+            "class".to_owned(),
+            container_classes_joined.clone(),
+        );
+        state.previous_container_classes = container_classes_joined;
+    }
 
     // Demonstrate item-level properties on the first item.
     let self_class = match state.align_self {
@@ -154,20 +161,31 @@ fn apply_state(
         item1_classes.push("order-1");
     }
 
-    engine.set_attribute(item1, "class".to_owned(), item1_classes.join(" "));
+    let item1_classes_joined = item1_classes.join(" ");
 
-    let item2_order = if state.order { "order-2" } else { "order-2" };
-    let item3_order = if state.order { "order-1" } else { "order-3" };
-    engine.set_attribute(
-        item2,
-        "class".to_owned(),
-        format!("box green_box {}", item2_order),
-    );
-    engine.set_attribute(
-        item3,
-        "class".to_owned(),
-        format!("box blue_box {}", item3_order),
-    );
+    if state.previous_item1_classes != item1_classes_joined {
+        println!("Item1 classes changed: {item1_classes_joined}");
+        engine.set_attribute(item1, "class".to_owned(), item1_classes_joined.clone());
+        state.previous_item1_classes = item1_classes_joined;
+    }
+
+    let item2_class = if state.order { "order-2" } else { "order-2" };
+    let item3_class = if state.order { "order-1" } else { "order-3" };
+    if state.previous_item2_classes != item2_class || state.previous_item3_classes != item3_class {
+        println!("Item2/3 classes changed: item2: {item2_class}, item3: {item3_class}");
+        engine.set_attribute(
+            item2,
+            "class".to_owned(),
+            format!("box green_box {}", item2_class),
+        );
+        engine.set_attribute(
+            item3,
+            "class".to_owned(),
+            format!("box blue_box {}", item3_class),
+        );
+        state.previous_item2_classes = item2_class.to_string();
+        state.previous_item3_classes = item3_class.to_string();
+    }
 }
 
 fn div(engine: &Engine, text: Option<String>, parent: Id, class: &str) -> Id {
@@ -340,7 +358,7 @@ fn main() {
     // Initial state application
     apply_state(
         &engine,
-        &state.borrow(),
+        &mut state.borrow_mut(),
         flex_container,
         item1,
         item2,
@@ -414,7 +432,7 @@ fn main() {
                     return;
                 }
 
-                apply_state(&engine, &state, flex_container, item1, item2, item3);
+                apply_state(&engine, &mut state, flex_container, item1, item2, item3);
             }))
         },
     };
