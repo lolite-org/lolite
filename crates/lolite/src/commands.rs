@@ -7,6 +7,8 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+use crate::windowing::{WindowMessage, WindowMessageSender};
+
 pub(crate) enum Command {
     AddStylesheet(String),
     CreateNode(Id, Option<String>),
@@ -16,7 +18,11 @@ pub(crate) enum Command {
     Layout,
 }
 
-pub(crate) fn handle_commands(rx: Receiver<Command>, snapshot: Arc<RwLock<Option<RenderNode>>>) {
+pub(crate) fn handle_commands(
+    rx: Receiver<Command>,
+    snapshot: Arc<RwLock<Option<RenderNode>>>,
+    message_sender: WindowMessageSender,
+) {
     let mut ctx = LayoutContext::new();
     let mut deadline: Option<Instant> = None;
 
@@ -31,6 +37,7 @@ pub(crate) fn handle_commands(rx: Receiver<Command>, snapshot: Arc<RwLock<Option
                     let root = ctx.document.root_node();
                     let snap = build_render_tree(root);
                     *snapshot.write().unwrap() = Some(snap);
+                    message_sender.send(WindowMessage::Redraw);
                     deadline = None;
                     // After layout, continue to next iteration
                     continue;
@@ -80,6 +87,7 @@ pub(crate) fn handle_commands(rx: Receiver<Command>, snapshot: Arc<RwLock<Option
                     let root = ctx.document.root_node();
                     let snap = build_render_tree(root);
                     *snapshot.write().unwrap() = Some(snap);
+                    message_sender.send(WindowMessage::Redraw);
                     deadline = None;
                 }
             },

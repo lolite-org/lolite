@@ -20,6 +20,8 @@ use std::sync::{
 };
 use std::thread;
 
+use crate::windowing::WindowMessageSender;
+
 #[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
 pub struct Id(u64);
 
@@ -43,6 +45,7 @@ pub struct Engine {
     snapshot: Arc<RwLock<Option<RenderNode>>>,
     root_id: Id,
     running: Arc<Mutex<()>>,
+    message_sender: WindowMessageSender,
 }
 
 pub struct Params {
@@ -61,15 +64,20 @@ impl Engine {
         let (tx, rx): (Sender<Command>, Receiver<Command>) = channel();
         let snapshot: Arc<RwLock<Option<RenderNode>>> = Arc::new(RwLock::new(None));
         let snapshot_for_thread = Arc::clone(&snapshot);
+        let message_sender = WindowMessageSender::new();
+        let message_sender_for_thread = message_sender.clone();
 
         // Spawn thread to handle the commands without blocking the main thread
-        thread::spawn(move || commands::handle_commands(rx, snapshot_for_thread));
+        thread::spawn(move || {
+            commands::handle_commands(rx, snapshot_for_thread, message_sender_for_thread)
+        });
 
         Self {
             sender: tx,
             snapshot,
             root_id: Id::from_u64(0),
             running: Arc::new(Mutex::new(())),
+            message_sender,
         }
     }
 
@@ -99,7 +107,8 @@ impl Engine {
             }),
         };
 
-        windowing::run(&mut params).map_err(|err| Error::UnknownError(err.to_string()))?;
+        windowing::run(&mut params, self.message_sender.clone())
+            .map_err(|err| Error::UnknownError(err.to_string()))?;
 
         Ok(())
     }
