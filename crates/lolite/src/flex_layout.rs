@@ -348,8 +348,29 @@ impl FlexLayoutEngine {
                 let item = &items[*idx];
                 let main_before_px = resolve_margin_px(&item.margin_main_before, auto_margin_share);
                 let main_after_px = resolve_margin_px(&item.margin_main_after, auto_margin_share);
-                let cross_before_px = length_px_or_zero(&item.margin_cross_before);
-                let cross_after_px = length_px_or_zero(&item.margin_cross_after);
+                let cross_auto_count: usize = (is_auto(&item.margin_cross_before) as usize)
+                    + (is_auto(&item.margin_cross_after) as usize);
+
+                let mut cross_before_px = length_px_or_zero(&item.margin_cross_before);
+                let mut cross_after_px = length_px_or_zero(&item.margin_cross_after);
+
+                // Auto margins in the cross axis absorb extra space and override
+                // align-self/align-items positioning.
+                // This is part of the flexbox alignment rules (§9.6 Cross-Axis Alignment).
+                if cross_auto_count > 0 {
+                    let free_cross = (line.cross_size
+                        - (item.final_cross + cross_before_px + cross_after_px))
+                        .max(0.0);
+                    if free_cross > 0.0 {
+                        let share = free_cross / cross_auto_count as f64;
+                        if is_auto(&item.margin_cross_before) {
+                            cross_before_px = share;
+                        }
+                        if is_auto(&item.margin_cross_after) {
+                            cross_after_px = share;
+                        }
+                    }
+                }
 
                 cursor_main += main_before_px;
 
@@ -363,15 +384,22 @@ impl FlexLayoutEngine {
                     AlignSelf::Stretch => AlignItems::Stretch,
                 };
 
-                let cross_pos = match align {
-                    AlignItems::FlexStart | AlignItems::Baseline | AlignItems::Stretch => {
-                        line_cross_offset + cross_before_px
-                    }
-                    AlignItems::FlexEnd => {
-                        line_cross_offset + (line.cross_size - outer_cross) + cross_before_px
-                    }
-                    AlignItems::Center => {
-                        line_cross_offset + (line.cross_size - outer_cross) / 2.0 + cross_before_px
+                let cross_pos = if cross_auto_count > 0 {
+                    // When cross-axis auto margins exist, they take the extra space.
+                    line_cross_offset + cross_before_px
+                } else {
+                    match align {
+                        AlignItems::FlexStart | AlignItems::Baseline | AlignItems::Stretch => {
+                            line_cross_offset + cross_before_px
+                        }
+                        AlignItems::FlexEnd => {
+                            line_cross_offset + (line.cross_size - outer_cross) + cross_before_px
+                        }
+                        AlignItems::Center => {
+                            line_cross_offset
+                                + (line.cross_size - outer_cross) / 2.0
+                                + cross_before_px
+                        }
                     }
                 };
 

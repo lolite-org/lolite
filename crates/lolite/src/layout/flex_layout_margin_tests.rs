@@ -50,7 +50,6 @@ fn setup_margin_demo_ctx(extra_css: &str, child2_class: &str) -> (LayoutContext,
 }
 
 #[test]
-#[ignore = "flex layout does not apply margins yet"]
 fn case_1_margin_left_20px() {
     // HTML: .margin_left_20px { margin-left: 20px; }
     // Parser note: we only parse `margin`, not `margin-left`.
@@ -73,7 +72,6 @@ fn case_1_margin_left_20px() {
 }
 
 #[test]
-#[ignore = "auto margins are not implemented yet (margin auto currently resolves to 0px)"]
 fn case_2_margin_left_auto() {
     // HTML: .margin_left_auto { margin-left: auto; }
     // Equivalent shorthand: margin: 0 0 0 auto
@@ -96,7 +94,6 @@ fn case_2_margin_left_auto() {
 }
 
 #[test]
-#[ignore = "flex layout does not apply margins yet"]
 fn case_3_margin_20px() {
     // HTML: .margin_20px { margin: 20px; }
     let (mut ctx, container, child1, child2, child3) = setup_margin_demo_ctx(
@@ -117,7 +114,6 @@ fn case_3_margin_20px() {
 }
 
 #[test]
-#[ignore = "auto margins are not implemented yet (margin auto currently resolves to 0px)"]
 fn case_4_margin_auto() {
     // HTML: .margin_auto { margin: auto; }
     // Flexbox expected behavior: auto margins on the item absorb free space.
@@ -139,7 +135,6 @@ fn case_4_margin_auto() {
 }
 
 #[test]
-#[ignore = "flex layout does not apply margins yet"]
 fn case_5_margin_0_20px() {
     // HTML: .margin_main_20px { margin: 0 20px; }
     let (mut ctx, container, child1, child2, child3) = setup_margin_demo_ctx(
@@ -160,7 +155,6 @@ fn case_5_margin_0_20px() {
 }
 
 #[test]
-#[ignore = "flex layout does not apply margins yet"]
 fn case_6_margin_20px_0() {
     // HTML: .margin_cross_20px { margin: 20px 0; }
     let (mut ctx, container, child1, child2, child3) = setup_margin_demo_ctx(
