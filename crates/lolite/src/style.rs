@@ -29,13 +29,25 @@ impl Length {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 #[allow(unused)]
 pub struct Extend {
     pub top: Length,
     pub right: Length,
     pub bottom: Length,
     pub left: Length,
+}
+
+impl Default for Extend {
+    fn default() -> Self {
+        // CSS initial value for margin/padding edges is 0.
+        Self {
+            top: Length::Px(0.0),
+            right: Length::Px(0.0),
+            bottom: Length::Px(0.0),
+            left: Length::Px(0.0),
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -127,6 +139,10 @@ pub struct Style {
     pub border_width: Option<Length>,
     pub border_radius: Option<BorderRadius>,
     pub margin: Option<Extend>,
+    pub margin_top: Option<Length>,
+    pub margin_right: Option<Length>,
+    pub margin_bottom: Option<Length>,
+    pub margin_left: Option<Length>,
     pub padding: Option<Extend>,
     pub width: Option<Length>,
     pub height: Option<Length>,

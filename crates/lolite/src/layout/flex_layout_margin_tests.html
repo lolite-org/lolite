@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+
+Note: This is a demonstration for the tests but not used in the actual tests
+
+<p>case 1: margin-left: 20px</p>
+<div class="flex_container">
+  <div class="child">child1</div>
+  <div class="child margin_left_20px">child2</div>
+  <div class="child">child2</div>
+</div>
+<p>case 2: margin-left: auto</p>
+<div class="flex_container">
+  <div class="child">child1</div>
+  <div class="child margin_left_auto">child2</div>
+  <div class="child">child2</div>
+</div>
+<p>case 3: margin: 20px</p>
+<div class="flex_container">
+  <div class="child">child1</div>
+  <div class="child margin_20px">child2</div>
+  <div class="child">child2</div>
+</div>
+<p>case 4: margin: auto</p>
+<div class="flex_container">
+  <div class="child">child1</div>
+  <div class="child margin_auto">child2</div>
+  <div class="child">child2</div>
+</div>
+<p>case 5: margin: 0 20px</p>
+<div class="flex_container">
+  <div class="child">child1</div>
+  <div class="child margin_main_20px">child2</div>
+  <div class="child">child2</div>
+</div>
+<p>case 6: margin: 20px 0</p>
+<div class="flex_container">
+  <div class="child">child1</div>
+  <div class="child margin_cross_20px">child2</div>
+  <div class="child">child2</div>
+</div>
+<style>
+  .flex_container {
+    display: flex;
+    flex-direction: row;
+    width: 400px;
+    height: 200px;
+    background: gray;
+    margin-bottom: 20px;
+  }
+
+  .child {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: wrap;
+    width: 60px;
+    height: 40px;
+    background: green;
+  }
+
+  .margin_left_20px {
+    margin-left: 20px;
+  }
+
+  .margin_left_auto {
+    margin-left: auto;
+  }
+
+  .margin_20px {
+    margin: 20px;
+  }
+
+  .margin_auto {
+    margin: auto;
+  }
+
+  .margin_main_20px {
+    margin: 0 20px;
+  }
+
+  .margin_cross_20px {
+    margin: 20px 0;
+  }
+</style>

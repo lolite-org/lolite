@@ -190,6 +190,7 @@ fn main() {
     gap: 10px;
     padding: 10px;
     background-color: #bbbbbb;
+    height: 500px;
 }
 
 .button {
@@ -409,6 +410,8 @@ fn main() {
                     state.basis = !state.basis;
                 } else if elements.first() == Some(&flex_button) {
                     state.flex = !state.flex;
+                } else {
+                    return;
                 }
 
                 apply_state(&engine, &state, flex_container, item1, item2, item3);

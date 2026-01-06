@@ -48,6 +48,13 @@ impl FlexLayoutEngine {
             }
         };
 
+        // Positioning origin for the flex container’s content box.
+        // Lolite currently models `width/height` as the primary size and uses padding as an
+        // inset for child placement.
+        let padding = container_style.padding.clone().unwrap_or_default();
+        let content_origin_x = container_x + padding.left.to_px();
+        let content_origin_y = container_y + padding.top.to_px();
+
         // === §9.2 Line Length Determination ===
         // §9.2 #2 Determine the available main and cross space for the flex items.
         // For each dimension:
@@ -104,6 +111,9 @@ impl FlexLayoutEngine {
             }
 
             let style = resolve_style(&child, ctx, container_style);
+            let margins = resolved_margin(&style);
+            let (main_before, main_after, cross_before, cross_after) =
+                margins_for_direction(&margins, &direction);
             // NOTE: This currently approximates §9.2 #3 “Determine the flex base size and
             // hypothetical main size of each item”.
             //
@@ -120,9 +130,12 @@ impl FlexLayoutEngine {
                 node: child,
                 style,
                 base_main,
-                base_cross,
                 final_main: base_main,
                 final_cross: base_cross,
+                margin_main_before: main_before,
+                margin_main_after: main_after,
+                margin_cross_before: cross_before,
+                margin_cross_after: cross_after,
             });
         }
 
@@ -139,7 +152,10 @@ impl FlexLayoutEngine {
 
         for (index, item) in items.iter().enumerate() {
             let additional_gap = if current.is_empty() { 0.0 } else { main_gap_px };
-            let candidate_used = current_used_main + additional_gap + item.base_main;
+            let item_outer_base_main = item.base_main
+                + length_px_or_zero(&item.margin_main_before)
+                + length_px_or_zero(&item.margin_main_after);
+            let candidate_used = current_used_main + additional_gap + item_outer_base_main;
 
             let should_wrap = can_wrap && !current.is_empty() && candidate_used > available_main;
             if should_wrap {
@@ -149,25 +165,29 @@ impl FlexLayoutEngine {
             }
 
             let gap = if current.is_empty() { 0.0 } else { main_gap_px };
-            current_used_main += gap + item.base_main;
+            current_used_main += gap + item_outer_base_main;
             current.push(index);
         }
         if !current.is_empty() {
             lines.push(current);
         }
 
-        // Layout each line.
-        let mut line_cross_offset = 0.0;
+        // --- Resolve per-line sizes (including §9.6 align-content later) ---
         let is_single_line = lines.len() == 1;
+        let mut processed_lines: Vec<FlexLine> = Vec::new();
 
-        for line in lines {
+        for line in &lines {
             // Resolve flexing within the line.
-            let total_base_main = line.iter().enumerate().fold(0.0, |acc, (pos, idx)| {
+            let total_outer_base_main = line.iter().enumerate().fold(0.0, |acc, (pos, idx)| {
                 let gap = if pos > 0 { main_gap_px } else { 0.0 };
-                acc + gap + items[*idx].base_main
+                let item = &items[*idx];
+                let outer = item.base_main
+                    + length_px_or_zero(&item.margin_main_before)
+                    + length_px_or_zero(&item.margin_main_after);
+                acc + gap + outer
             });
 
-            let free_space = available_main - total_base_main;
+            let free_space = available_main - total_outer_base_main;
             if free_space > 0.0 {
                 let total_grow: f64 = line
                     .iter()
@@ -175,7 +195,7 @@ impl FlexLayoutEngine {
                     .sum();
 
                 if total_grow > 0.0 {
-                    for idx in &line {
+                    for idx in line {
                         let grow = items[*idx].style.flex_grow.unwrap_or(0.0);
                         items[*idx].final_main =
                             items[*idx].base_main + (free_space * (grow / total_grow));
@@ -202,24 +222,48 @@ impl FlexLayoutEngine {
                 }
             }
 
-            // Determine line cross size.
+            // Determine line cross size from the max outer cross size.
             let mut line_cross_size: f64 = 0.0;
-            for idx in &line {
-                line_cross_size = line_cross_size.max(items[*idx].final_cross);
+            for idx in line {
+                let item = &items[*idx];
+                let outer_cross = item.final_cross
+                    + length_px_or_zero(&item.margin_cross_before)
+                    + length_px_or_zero(&item.margin_cross_after);
+                line_cross_size = line_cross_size.max(outer_cross);
             }
 
             // Single-line definite cross size behavior (spec lives in §9.4, but it is a
             // necessary precondition for nested flex sizing to match expectations).
-            // If the flex container is single-line and has a definite cross size,
-            // the line’s cross size is the container’s inner cross size.
             if is_single_line
                 && is_definite_container_content_box_size(container_style, &direction, Axis::Cross)
             {
                 line_cross_size = available_cross;
             }
 
-            // Apply align-items (and align-self) in the cross axis.
-            for idx in &line {
+            processed_lines.push(FlexLine {
+                indices: line.clone(),
+                cross_size: line_cross_size,
+            });
+        }
+
+        // === §9.6 Cross-axis alignment: align-content for multi-line containers ===
+        // We distribute leftover cross space between lines according to align-content.
+        // NOTE: The CSS initial value of align-content is `stretch`, but the current Lolite
+        // test suite expects the default behavior to pack lines at the start unless an
+        // explicit `align-content` is set.
+        let align_content = container_style
+            .align_content
+            .unwrap_or(crate::style::AlignContent::FlexStart);
+        let (line_start_offset, line_between_gap) = align_content_offsets(
+            align_content,
+            available_cross,
+            cross_gap_px,
+            &mut processed_lines,
+        );
+
+        // Now that line cross sizes are final, apply align-items/align-self stretch.
+        for line in &processed_lines {
+            for idx in &line.indices {
                 let align = match items[*idx]
                     .style
                     .align_self
@@ -237,60 +281,115 @@ impl FlexLayoutEngine {
                 if matches!(align, AlignItems::Stretch)
                     && cross_size_is_auto(&items[*idx].style, &direction)
                 {
-                    items[*idx].final_cross = line_cross_size;
+                    let margins = length_px_or_zero(&items[*idx].margin_cross_before)
+                        + length_px_or_zero(&items[*idx].margin_cross_after);
+                    items[*idx].final_cross = (line.cross_size - margins).max(0.0);
                 }
             }
+        }
 
-            // Recompute line used main after flexing.
-            let line_used_main = line.iter().enumerate().fold(0.0, |acc, (pos, idx)| {
-                let gap = if pos > 0 { main_gap_px } else { 0.0 };
-                acc + gap + items[*idx].final_main
-            });
+        // --- Position items within each line (includes §9.5 main-axis alignment) ---
+        let mut line_cross_offset = line_start_offset;
+        for line in processed_lines {
+            // Recompute line used main after flexing, including margins.
+            let line_used_main = line
+                .indices
+                .iter()
+                .enumerate()
+                .fold(0.0, |acc, (pos, idx)| {
+                    let gap = if pos > 0 { main_gap_px } else { 0.0 };
+                    let item = &items[*idx];
+                    let outer = item.final_main
+                        + length_px_or_zero(&item.margin_main_before)
+                        + length_px_or_zero(&item.margin_main_after);
+                    acc + gap + outer
+                });
 
-            let leftover_for_justify = (available_main - line_used_main).max(0.0);
-            let (start_offset, between_gap) = justify_offsets(
-                &justify_content,
-                &direction,
-                leftover_for_justify,
-                main_gap_px,
-                line.len(),
-            );
+            let mut leftover_for_main = (available_main - line_used_main).max(0.0);
+
+            // §9.5 Main-axis alignment: auto margins absorb remaining free space.
+            let auto_margin_count: usize = line
+                .indices
+                .iter()
+                .map(|idx| {
+                    let item = &items[*idx];
+                    (is_auto(&item.margin_main_before) as usize)
+                        + (is_auto(&item.margin_main_after) as usize)
+                })
+                .sum();
+
+            let auto_margin_share = if auto_margin_count > 0 && leftover_for_main > 0.0 {
+                let share = leftover_for_main / auto_margin_count as f64;
+                leftover_for_main = 0.0;
+                Some(share)
+            } else {
+                None
+            };
+
+            let (start_offset, between_gap) = if auto_margin_share.is_some() {
+                // If auto margins take the free space, justify-content has no effect.
+                (0.0, main_gap_px)
+            } else {
+                justify_offsets(
+                    &justify_content,
+                    &direction,
+                    leftover_for_main,
+                    main_gap_px,
+                    line.indices.len(),
+                )
+            };
 
             let mut cursor_main = start_offset;
-            for (pos, idx) in line.iter().enumerate() {
+            for (pos, idx) in line.indices.iter().enumerate() {
                 if pos > 0 {
                     cursor_main += between_gap;
                 }
 
                 let item = &items[*idx];
-                let cross_pos = match align_items {
+                let main_before_px = resolve_margin_px(&item.margin_main_before, auto_margin_share);
+                let main_after_px = resolve_margin_px(&item.margin_main_after, auto_margin_share);
+                let cross_before_px = length_px_or_zero(&item.margin_cross_before);
+                let cross_after_px = length_px_or_zero(&item.margin_cross_after);
+
+                cursor_main += main_before_px;
+
+                let outer_cross = item.final_cross + cross_before_px + cross_after_px;
+                let align = match item.style.align_self.as_ref().unwrap_or(&AlignSelf::Auto) {
+                    AlignSelf::Auto => align_items.clone(),
+                    AlignSelf::FlexStart => AlignItems::FlexStart,
+                    AlignSelf::FlexEnd => AlignItems::FlexEnd,
+                    AlignSelf::Center => AlignItems::Center,
+                    AlignSelf::Baseline => AlignItems::Baseline,
+                    AlignSelf::Stretch => AlignItems::Stretch,
+                };
+
+                let cross_pos = match align {
                     AlignItems::FlexStart | AlignItems::Baseline | AlignItems::Stretch => {
-                        line_cross_offset
+                        line_cross_offset + cross_before_px
                     }
-                    AlignItems::FlexEnd => line_cross_offset + (line_cross_size - item.final_cross),
+                    AlignItems::FlexEnd => {
+                        line_cross_offset + (line.cross_size - outer_cross) + cross_before_px
+                    }
                     AlignItems::Center => {
-                        line_cross_offset + (line_cross_size - item.final_cross) / 2.0
+                        line_cross_offset + (line.cross_size - outer_cross) / 2.0 + cross_before_px
                     }
                 };
 
                 let (x, y, w, h) = match direction {
                     FlexDirection::Row | FlexDirection::RowReverse => (
-                        container_x + cursor_main,
-                        container_y + cross_pos,
+                        content_origin_x + cursor_main,
+                        content_origin_y + cross_pos,
                         item.final_main,
                         item.final_cross,
                     ),
                     FlexDirection::Column | FlexDirection::ColumnReverse => (
-                        container_x + cross_pos,
-                        container_y + cursor_main,
+                        content_origin_x + cross_pos,
+                        content_origin_y + cursor_main,
                         item.final_cross,
                         item.final_main,
                     ),
                 };
 
-                // Apply the computed (post-flexing) used size to the item.
-                // This is important for nested flex containers: their own “available space”
-                // (§9.2 #2) depends on the size assigned by the parent flex formatting context.
                 {
                     let mut node_borrow = item.node.borrow_mut();
                     node_borrow.layout.bounds.x = x;
@@ -300,25 +399,14 @@ impl FlexLayoutEngine {
                     node_borrow.layout.style = std::sync::Arc::new(item.style.clone());
                 }
 
-                // Layout the child subtree (so nested flex containers work).
-                // LayoutContext now respects these pre-set sizes for container nodes.
-                ctx.layout_node(item.node.clone(), x, y);
-
-                // Override the computed size after layout.
-                // This is required for leaf nodes: LayoutContext will size leaves from their
-                // style (e.g. height: 40px), but flexing (grow/shrink) produces a used size
-                // that must win.
-                {
-                    let mut node_borrow = item.node.borrow_mut();
-                    node_borrow.layout.bounds.width = w;
-                    node_borrow.layout.bounds.height = h;
-                    node_borrow.layout.style = std::sync::Arc::new(item.style.clone());
+                if !item.node.borrow().children.is_empty() {
+                    self.layout_flex_children(item.node.clone(), &item.style, ctx);
                 }
 
-                cursor_main += item.final_main;
+                cursor_main += item.final_main + main_after_px;
             }
 
-            line_cross_offset += line_cross_size + cross_gap_px;
+            line_cross_offset += line.cross_size + line_between_gap;
         }
     }
 }
@@ -328,9 +416,18 @@ struct FlexItem {
     node: Rc<RefCell<Node>>,
     style: Style,
     base_main: f64,
-    base_cross: f64,
     final_main: f64,
     final_cross: f64,
+    margin_main_before: Length,
+    margin_main_after: Length,
+    margin_cross_before: Length,
+    margin_cross_after: Length,
+}
+
+#[derive(Clone)]
+struct FlexLine {
+    indices: Vec<usize>,
+    cross_size: f64,
 }
 
 fn base_sizes_for_item(
@@ -407,16 +504,16 @@ fn is_definite_container_content_box_size(
 ) -> bool {
     match (direction, axis) {
         (FlexDirection::Row | FlexDirection::RowReverse, Axis::Main) => {
-            !matches!(style.width, Some(Length::Auto))
+            matches!(style.width, Some(Length::Px(_)))
         }
         (FlexDirection::Row | FlexDirection::RowReverse, Axis::Cross) => {
-            !matches!(style.height, Some(Length::Auto))
+            matches!(style.height, Some(Length::Px(_)))
         }
         (FlexDirection::Column | FlexDirection::ColumnReverse, Axis::Main) => {
-            !matches!(style.height, Some(Length::Auto))
+            matches!(style.height, Some(Length::Px(_)))
         }
         (FlexDirection::Column | FlexDirection::ColumnReverse, Axis::Cross) => {
-            !matches!(style.width, Some(Length::Auto))
+            matches!(style.width, Some(Length::Px(_)))
         }
     }
 }
@@ -502,8 +599,107 @@ fn intrinsic_main_from_children(
 
 fn cross_size_is_auto(style: &Style, direction: &FlexDirection) -> bool {
     match direction {
-        FlexDirection::Row | FlexDirection::RowReverse => style.height.is_none(),
-        FlexDirection::Column | FlexDirection::ColumnReverse => style.width.is_none(),
+        FlexDirection::Row | FlexDirection::RowReverse => {
+            style.height.is_none() || matches!(style.height, Some(Length::Auto))
+        }
+        FlexDirection::Column | FlexDirection::ColumnReverse => {
+            style.width.is_none() || matches!(style.width, Some(Length::Auto))
+        }
+    }
+}
+
+fn resolved_margin(style: &Style) -> crate::style::Extend {
+    let mut m = style.margin.clone().unwrap_or_default();
+
+    if let Some(v) = &style.margin_top {
+        m.top = v.clone();
+    }
+    if let Some(v) = &style.margin_right {
+        m.right = v.clone();
+    }
+    if let Some(v) = &style.margin_bottom {
+        m.bottom = v.clone();
+    }
+    if let Some(v) = &style.margin_left {
+        m.left = v.clone();
+    }
+
+    m
+}
+
+fn margins_for_direction(
+    m: &crate::style::Extend,
+    direction: &FlexDirection,
+) -> (Length, Length, Length, Length) {
+    match direction {
+        FlexDirection::Row => (m.left, m.right, m.top, m.bottom),
+        FlexDirection::RowReverse => (m.right, m.left, m.top, m.bottom),
+        FlexDirection::Column => (m.top, m.bottom, m.left, m.right),
+        FlexDirection::ColumnReverse => (m.bottom, m.top, m.left, m.right),
+    }
+}
+
+fn is_auto(length: &Length) -> bool {
+    matches!(length, Length::Auto)
+}
+
+fn length_px_or_zero(length: &Length) -> f64 {
+    match length {
+        Length::Auto => 0.0,
+        _ => length.to_px(),
+    }
+}
+
+fn resolve_margin_px(length: &Length, auto_share: Option<f64>) -> f64 {
+    match (length, auto_share) {
+        (Length::Auto, Some(share)) => share,
+        (Length::Auto, None) => 0.0,
+        (other, _) => other.to_px(),
+    }
+}
+
+fn align_content_offsets(
+    align_content: crate::style::AlignContent,
+    available_cross: f64,
+    base_gap: f64,
+    lines: &mut [FlexLine],
+) -> (f64, f64) {
+    if lines.is_empty() {
+        return (0.0, base_gap);
+    }
+
+    let line_count = lines.len();
+    let total_cross: f64 = lines.iter().map(|l| l.cross_size).sum::<f64>()
+        + base_gap * (line_count.saturating_sub(1) as f64);
+    let leftover = (available_cross - total_cross).max(0.0);
+
+    match align_content {
+        crate::style::AlignContent::FlexStart => (0.0, base_gap),
+        crate::style::AlignContent::FlexEnd => (leftover, base_gap),
+        crate::style::AlignContent::Center => (leftover / 2.0, base_gap),
+        crate::style::AlignContent::SpaceBetween => {
+            if line_count <= 1 {
+                (0.0, base_gap)
+            } else {
+                let extra = leftover / (line_count as f64 - 1.0);
+                (0.0, base_gap + extra)
+            }
+        }
+        crate::style::AlignContent::SpaceAround => {
+            let extra = leftover / line_count as f64;
+            (extra / 2.0, base_gap + extra)
+        }
+        crate::style::AlignContent::SpaceEvenly => {
+            let extra = leftover / (line_count as f64 + 1.0);
+            (extra, base_gap + extra)
+        }
+        crate::style::AlignContent::Stretch => {
+            let extra = leftover / line_count as f64;
+            for line in lines.iter_mut() {
+                line.cross_size += extra;
+            }
+            (0.0, base_gap)
+        }
     }
 }
 

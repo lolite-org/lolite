@@ -148,6 +148,12 @@ impl StyleDeclarationParser {
                         b: 0,
                         a: 0,
                     }),
+                    "gray" => Ok(Rgba {
+                        r: 128,
+                        g: 128,
+                        b: 128,
+                        a: 255,
+                    }),
                     _ => Err(input.new_error_for_next_token()),
                 }
             }
@@ -247,6 +253,11 @@ impl<'i> DeclarationParser<'i> for StyleDeclarationParser {
                 style.height = Some(self.parse_length_value(input)?);
             }
             "margin" => {
+                // NOTE: We currently implement the physical margin shorthands/sides:
+                // - `margin` (shorthand)
+                // - `margin-top/right/bottom/left`
+                // We do NOT yet implement logical properties like `margin-inline`,
+                // `margin-block`, `margin-inline-start/end`, etc.
                 let first = self.parse_length_value(input)?;
                 let second = input
                     .try_parse(|input| self.parse_length_value(input))
@@ -264,6 +275,27 @@ impl<'i> DeclarationParser<'i> for StyleDeclarationParser {
                     bottom: third,
                     left: fourth,
                 });
+
+                // Mirror into per-side fields so later declarations like `margin-left`
+                // can override a single side via Style::merge.
+                if let Some(m) = style.margin.as_ref() {
+                    style.margin_top = Some(m.top);
+                    style.margin_right = Some(m.right);
+                    style.margin_bottom = Some(m.bottom);
+                    style.margin_left = Some(m.left);
+                }
+            }
+            "margin-top" => {
+                style.margin_top = Some(self.parse_length_value(input)?);
+            }
+            "margin-right" => {
+                style.margin_right = Some(self.parse_length_value(input)?);
+            }
+            "margin-bottom" => {
+                style.margin_bottom = Some(self.parse_length_value(input)?);
+            }
+            "margin-left" => {
+                style.margin_left = Some(self.parse_length_value(input)?);
             }
             "padding" => {
                 let first = self.parse_length_value(input)?;

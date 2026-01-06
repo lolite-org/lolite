@@ -21,6 +21,16 @@ pub struct Rect {
 
 impl Rect {
     #[allow(unused)]
+    pub fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    #[allow(unused)]
     pub fn contains_point(&self, x: f64, y: f64) -> bool {
         x >= self.x && x <= self.x + self.width && y >= self.y && y <= self.y + self.height
     }
@@ -202,8 +212,8 @@ impl LayoutContext {
             node_borrow.layout.style = Arc::new(style);
         } else {
             // Container node - handle flexbox layout
-            let container_width = style.width.as_ref().map(|w| w.to_px()).unwrap_or(300.0);
-            let container_height = style.height.as_ref().map(|h| h.to_px()).unwrap_or(200.0);
+            let container_width = style.width.as_ref().map(|w| w.to_px()).unwrap_or(800.0);
+            let container_height = style.height.as_ref().map(|h| h.to_px()).unwrap_or(500.0);
 
             // Set container dimensions
             {
@@ -240,22 +250,6 @@ impl RenderNode {
         self.find_path_at_position(x, y).unwrap_or_default()
     }
 
-    /// Recursively find the topmost (deepest) element that contains the given position.
-    fn find_topmost_element_at_position(&self, x: f64, y: f64) -> Option<Id> {
-        if !self.bounds.contains_point(x, y) {
-            return None;
-        }
-
-        // Check children in reverse order (later children are rendered on top)
-        for child in self.children.iter().rev() {
-            if let Some(child_id) = child.find_topmost_element_at_position(x, y) {
-                return Some(child_id);
-            }
-        }
-
-        Some(self.id)
-    }
-
     fn find_path_at_position(&self, x: f64, y: f64) -> Option<Vec<Id>> {
         if !self.bounds.contains_point(x, y) {
             return None;
@@ -288,6 +282,9 @@ pub fn build_render_tree(node: Rc<RefCell<Node>>) -> RenderNode {
 }
 
 #[cfg(test)]
+mod asserts;
+
+#[cfg(test)]
 mod flex_layout_flow_tests;
 
 #[cfg(test)]
@@ -304,3 +301,12 @@ mod margin_padding_tests;
 
 #[cfg(test)]
 mod hit_testing_tests;
+
+#[cfg(test)]
+mod flex_layout_nested_tests;
+
+#[cfg(test)]
+mod flex_layout_margin_tests;
+
+#[cfg(test)]
+mod margin_tests;
