@@ -1,3 +1,4 @@
+use crate::named_colors;
 use crate::style::{
     AlignContent, AlignItems, AlignSelf, BorderRadius, BoxSizing, Display, Extend, FlexDirection,
     FlexWrap, JustifyContent, Length, Rgba, Rule, Selector, Style, StyleSheet,
@@ -109,54 +110,8 @@ impl StyleDeclarationParser {
     ) -> Result<Rgba, ParseError<'i, ()>> {
         let token = input.next()?;
         match token {
-            Token::Ident(name) => {
-                // Handle named colors
-                match name.as_ref() {
-                    "red" => Ok(Rgba {
-                        r: 255,
-                        g: 0,
-                        b: 0,
-                        a: 255,
-                    }),
-                    "green" => Ok(Rgba {
-                        r: 0,
-                        g: 128,
-                        b: 0,
-                        a: 255,
-                    }),
-                    "blue" => Ok(Rgba {
-                        r: 0,
-                        g: 0,
-                        b: 255,
-                        a: 255,
-                    }),
-                    "black" => Ok(Rgba {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 255,
-                    }),
-                    "white" => Ok(Rgba {
-                        r: 255,
-                        g: 255,
-                        b: 255,
-                        a: 255,
-                    }),
-                    "transparent" => Ok(Rgba {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 0,
-                    }),
-                    "gray" => Ok(Rgba {
-                        r: 128,
-                        g: 128,
-                        b: 128,
-                        a: 255,
-                    }),
-                    _ => Err(input.new_error_for_next_token()),
-                }
-            }
+            Token::Ident(name) => named_colors::named_color(name.as_ref())
+                .ok_or_else(|| input.new_error_for_next_token()),
             Token::Hash(hex) | Token::IDHash(hex) => {
                 // Parse hex colors like #ff0000
                 parse_hex_color(&hex).map_err(|_| input.new_error_for_next_token())

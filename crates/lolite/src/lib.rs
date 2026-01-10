@@ -3,6 +3,7 @@ mod commands;
 mod css_parser;
 mod flex_layout;
 mod layout;
+mod named_colors;
 mod painter;
 mod style;
 mod windowing;

@@ -1,5 +1,5 @@
 use crate::css_parser::parse_css;
-use crate::style::{BoxSizing, Display, Length, Selector};
+use crate::style::{BoxSizing, Display, Length, Rgba, Selector};
 
 #[test]
 fn test_parse_simple_css_document() {
@@ -135,6 +135,66 @@ fn test_parse_colors() {
     for rule in &stylesheet.rules {
         assert!(!rule.declarations.is_empty());
     }
+}
+
+#[test]
+fn test_named_colors_exact_values() {
+    let css = r#"
+        .a { background-color: AliceBlue; }
+        .b { background-color: rebeccapurple; }
+        .c { background-color: gray; }
+        .d { background-color: grey; }
+        .e { background-color: transparent; }
+    "#;
+
+    let stylesheet = parse_css(css).expect("Failed to parse CSS");
+    assert_eq!(stylesheet.rules.len(), 5);
+
+    let get_bg = |idx: usize| -> Rgba {
+        stylesheet.rules[idx]
+            .declarations
+            .iter()
+            .find_map(|d| d.background_color)
+            .expect("Expected background-color declaration")
+    };
+
+    assert_eq!(
+        get_bg(0),
+        Rgba {
+            r: 240,
+            g: 248,
+            b: 255,
+            a: 255
+        }
+    );
+    assert_eq!(
+        get_bg(1),
+        Rgba {
+            r: 102,
+            g: 51,
+            b: 153,
+            a: 255
+        }
+    );
+    assert_eq!(
+        get_bg(2),
+        Rgba {
+            r: 128,
+            g: 128,
+            b: 128,
+            a: 255
+        }
+    );
+    assert_eq!(get_bg(2), get_bg(3));
+    assert_eq!(
+        get_bg(4),
+        Rgba {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0
+        }
+    );
 }
 
 #[test]
