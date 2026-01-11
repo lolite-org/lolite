@@ -62,8 +62,15 @@ impl<'a> Painter<'a> {
 
         // Draw the node's text if it has any
         if let Some(text) = &node.text {
-            let mut paint = Paint::default();
-            paint.set_color(Color::BLACK);
+            let text_color = style.color.unwrap_or(Rgba {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            });
+
+            let mut paint = Paint::new(text_color.to_color4f(), None);
+            paint.set_anti_alias(true);
 
             let x = node.bounds.x as f32;
             let y = (node.bounds.y + node.bounds.height / 2.0) as f32;

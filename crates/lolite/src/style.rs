@@ -141,6 +141,7 @@ pub enum BoxSizing {
 #[derive(Clone, Default, MergeProperties)]
 pub struct Style {
     pub display: Display,
+    pub color: Option<Rgba>,
     pub background_color: Option<Rgba>,
     pub border_color: Option<Rgba>,
     pub border_width: Option<Length>,

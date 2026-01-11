@@ -37,6 +37,45 @@ fn test_parse_colors() {
 }
 
 #[test]
+fn test_text_color_property_parsing() {
+    let css = r#"
+        .a { color: red; }
+        .b { color: rgba(0, 255, 0, 0.5); }
+    "#;
+
+    let stylesheet = parse_css(css).expect("Failed to parse CSS");
+    assert_eq!(stylesheet.rules.len(), 2);
+
+    let get_color = |idx: usize| -> Rgba {
+        stylesheet.rules[idx]
+            .declarations
+            .iter()
+            .find_map(|d| d.color)
+            .expect("Expected color declaration")
+    };
+
+    assert_eq!(
+        get_color(0),
+        Rgba {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        }
+    );
+
+    assert_eq!(
+        get_color(1),
+        Rgba {
+            r: 0,
+            g: 255,
+            b: 0,
+            a: 128
+        }
+    );
+}
+
+#[test]
 fn test_named_colors_exact_values() {
     let css = r#"
         .a { background-color: AliceBlue; }
