@@ -198,6 +198,14 @@ impl StyleDeclarationParser {
         }
     }
 
+    fn parse_hwb_percent_or_number<'i, 't>(
+        &mut self,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<f32, ParseError<'i, ()>> {
+        // HWB W and B allow mixed <percentage>/<number> in modern syntax, and also allow 'none'.
+        self.parse_hsl_percent_or_number(input)
+    }
+
     fn parse_percentage<'i, 't>(
         &mut self,
         input: &mut Parser<'i, 't>,
@@ -289,6 +297,62 @@ impl StyleDeclarationParser {
         Ok(Rgba { r, g, b, a })
     }
 
+    fn hwb_to_rgb_u8(hue_degrees: f32, white_0_100: f32, black_0_100: f32) -> (u8, u8, u8) {
+        // Conversion algorithm based on CSS Color 4 §8.1 (sample implementation).
+        // Note: values outside [0,100] are not invalid; we only clamp negative values.
+        let hue = hue_degrees;
+        let white = (white_0_100.max(0.0)) / 100.0;
+        let black = (black_0_100.max(0.0)) / 100.0;
+
+        if white + black >= 1.0 {
+            let gray = white / (white + black);
+            let v = Self::clamp_u8(gray * 255.0);
+            return (v, v, v);
+        }
+
+        // Base color is the fully saturated hue at 50% lightness.
+        let (base_r, base_g, base_b) = Self::hsl_to_rgb_u8(hue, 100.0, 50.0);
+        let mut r = (base_r as f32) / 255.0;
+        let mut g = (base_g as f32) / 255.0;
+        let mut b = (base_b as f32) / 255.0;
+
+        let factor = 1.0 - white - black;
+        r = r * factor + white;
+        g = g * factor + white;
+        b = b * factor + white;
+
+        (
+            Self::clamp_u8(r * 255.0),
+            Self::clamp_u8(g * 255.0),
+            Self::clamp_u8(b * 255.0),
+        )
+    }
+
+    fn parse_hwb_color<'i, 't>(
+        &mut self,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<Rgba, ParseError<'i, ()>> {
+        // CSS Color 4 §8: hwb() does NOT support legacy comma-separated syntax.
+        // Using commas inside hwb() is an error.
+        let hue = self.parse_hue_value(input)?;
+
+        if input.try_parse(|i| i.expect_comma()).is_ok() {
+            return Err(input.new_error_for_next_token());
+        }
+
+        let white = self.parse_hwb_percent_or_number(input)?;
+        let black = self.parse_hwb_percent_or_number(input)?;
+
+        let a = if input.try_parse(|i| i.expect_delim('/')).is_ok() {
+            self.parse_alpha_value_u8(input)?
+        } else {
+            255
+        };
+
+        let (r, g, b) = Self::hwb_to_rgb_u8(hue, white, black);
+        Ok(Rgba { r, g, b, a })
+    }
+
     fn parse_color_value<'i, 't>(
         &mut self,
         input: &mut Parser<'i, 't>,
@@ -321,6 +385,8 @@ impl StyleDeclarationParser {
                     })
                 } else if func.eq_ignore_ascii_case("hsl") || func.eq_ignore_ascii_case("hsla") {
                     input.parse_nested_block(|input| self.parse_hsl_color(input))
+                } else if func.eq_ignore_ascii_case("hwb") {
+                    input.parse_nested_block(|input| self.parse_hwb_color(input))
                 } else {
                     Err(input.new_error_for_next_token())
                 }
