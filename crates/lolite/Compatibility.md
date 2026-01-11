@@ -15,7 +15,7 @@ This table lists the specifications enumerated in **Section 2 (Classification of
 | CSS Values and Units Module Level 3 | [CSS-VALUES-3](https://www.w3.org/TR/css-values-3/) | |
 | CSS Custom Properties for Cascading Variables Module Level 1 | [CSS-VARIABLES-1](https://www.w3.org/TR/css-variables-1/) | |
 | CSS Box Model Module Level 3 | [CSS-BOX-3](https://www.w3.org/TR/css-box-3/) | |
-| CSS Color Module Level 4 | [CSS-COLOR-4](https://www.w3.org/TR/css-color-4/) | |
+| CSS Color Module Level 4 | [CSS-COLOR-4](https://www.w3.org/TR/css-color-4/) | Partial support. Missing `opacity`, `color: inherit`, `lab`, `lch`, `oklab`, `oklch`, `color`, `currentcolor`. Only sRGB color space supported. |
 | CSS Backgrounds and Borders Module Level 3 | [CSS-BACKGROUNDS-3](https://www.w3.org/TR/css-backgrounds-3/) | |
 | CSS Images Module Level 3 | [CSS-IMAGES-3](https://www.w3.org/TR/css-images-3/) | |
 | CSS Fonts Module Level 3 | [CSS-FONTS-3](https://www.w3.org/TR/css-fonts-3/) | |
@@ -62,7 +62,7 @@ This table lists the specifications enumerated in **Section 2 (Classification of
 | Motion Path Module Level 1 | [MOTION-1](https://www.w3.org/TR/motion-1/) | |
 | CSS Scroll Anchoring Module Level 1 | [CSS-SCROLL-ANCHORING-1](https://www.w3.org/TR/css-scroll-anchoring-1/) | |
 | CSS Object Model (CSSOM) | [CSSOM-1](https://www.w3.org/TR/cssom-1/) | |
-| CSS Color Module Level 5 | [CSS-COLOR-5](https://www.w3.org/TR/css-color-5/) | Partial support |
+| CSS Color Module Level 5 | [CSS-COLOR-5](https://www.w3.org/TR/css-color-5/) | |
 | Selectors Level 4 | [SELECTORS-4](https://www.w3.org/TR/selectors-4/) | |
 | CSS Containment Module Level 2 | [CSS-CONTAIN-2](https://www.w3.org/TR/css-contain-2/) | |
 | CSSOM View Module | [CSSOM-VIEW-1](https://www.w3.org/TR/cssom-view-1/) | |
