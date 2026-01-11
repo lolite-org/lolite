@@ -198,6 +198,64 @@ fn test_named_colors_exact_values() {
 }
 
 #[test]
+fn test_rgb_rgba_comma_syntax() {
+    let css = r#"
+        .a { background-color: rgb(255, 0, 128); }
+        .b { background-color: rgb(100%, 0%, 0%); }
+        .c { background-color: rgba(255, 0, 0, 0.5); }
+        .d { background-color: rgba(0%, 50%, 100%, 25%); }
+    "#;
+
+    let stylesheet = parse_css(css).expect("Failed to parse CSS");
+    assert_eq!(stylesheet.rules.len(), 4);
+
+    let get_bg = |idx: usize| -> crate::style::Rgba {
+        stylesheet.rules[idx]
+            .declarations
+            .iter()
+            .find_map(|d| d.background_color)
+            .expect("Expected background-color declaration")
+    };
+
+    assert_eq!(
+        get_bg(0),
+        crate::style::Rgba {
+            r: 255,
+            g: 0,
+            b: 128,
+            a: 255
+        }
+    );
+    assert_eq!(
+        get_bg(1),
+        crate::style::Rgba {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        }
+    );
+    assert_eq!(
+        get_bg(2),
+        crate::style::Rgba {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 128
+        }
+    );
+    assert_eq!(
+        get_bg(3),
+        crate::style::Rgba {
+            r: 0,
+            g: 128,
+            b: 255,
+            a: 64
+        }
+    );
+}
+
+#[test]
 fn test_parse_lengths() {
     let css = r#"
         .length-test {

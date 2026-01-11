@@ -104,6 +104,38 @@ impl StyleDeclarationParser {
         Self {}
     }
 
+    fn clamp_u8(value: f32) -> u8 {
+        value.clamp(0.0, 255.0).round() as u8
+    }
+
+    fn parse_rgb_channel<'i, 't>(
+        &mut self,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<u8, ParseError<'i, ()>> {
+        let token = input.next()?;
+        match token {
+            Token::Number { value, .. } => Ok(Self::clamp_u8(*value as f32)),
+            Token::Percentage { unit_value, .. } => {
+                Ok(Self::clamp_u8((*unit_value as f32) * 255.0))
+            }
+            _ => Err(input.new_error_for_next_token()),
+        }
+    }
+
+    fn parse_alpha_channel<'i, 't>(
+        &mut self,
+        input: &mut Parser<'i, 't>,
+    ) -> Result<u8, ParseError<'i, ()>> {
+        let token = input.next()?;
+        let alpha_0_1 = match token {
+            Token::Number { value, .. } => *value as f32,
+            Token::Percentage { unit_value, .. } => *unit_value as f32,
+            _ => return Err(input.new_error_for_next_token()),
+        };
+
+        Ok((alpha_0_1.clamp(0.0, 1.0) * 255.0).round() as u8)
+    }
+
     fn parse_color_value<'i, 't>(
         &mut self,
         input: &mut Parser<'i, 't>,
@@ -112,6 +144,32 @@ impl StyleDeclarationParser {
         match token {
             Token::Ident(name) => named_colors::named_color(name.as_ref())
                 .ok_or_else(|| input.new_error_for_next_token()),
+            Token::Function(name) => {
+                let func = name.as_ref();
+                if func.eq_ignore_ascii_case("rgb") {
+                    input.parse_nested_block(|input| {
+                        let r = self.parse_rgb_channel(input)?;
+                        input.expect_comma()?;
+                        let g = self.parse_rgb_channel(input)?;
+                        input.expect_comma()?;
+                        let b = self.parse_rgb_channel(input)?;
+                        Ok(Rgba { r, g, b, a: 255 })
+                    })
+                } else if func.eq_ignore_ascii_case("rgba") {
+                    input.parse_nested_block(|input| {
+                        let r = self.parse_rgb_channel(input)?;
+                        input.expect_comma()?;
+                        let g = self.parse_rgb_channel(input)?;
+                        input.expect_comma()?;
+                        let b = self.parse_rgb_channel(input)?;
+                        input.expect_comma()?;
+                        let a = self.parse_alpha_channel(input)?;
+                        Ok(Rgba { r, g, b, a })
+                    })
+                } else {
+                    Err(input.new_error_for_next_token())
+                }
+            }
             Token::Hash(hex) | Token::IDHash(hex) => {
                 // Parse hex colors like #ff0000
                 parse_hex_color(&hex).map_err(|_| input.new_error_for_next_token())
