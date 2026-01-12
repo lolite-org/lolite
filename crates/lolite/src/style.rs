@@ -156,6 +156,10 @@ pub struct Style {
     pub width: Option<Length>,
     pub height: Option<Length>,
 
+    // Text / font properties
+    pub font_family: Option<String>,
+    pub font_size: Option<Length>,
+
     // Flexbox container properties
     pub flex_direction: Option<FlexDirection>,
     pub flex_wrap: Option<FlexWrap>,

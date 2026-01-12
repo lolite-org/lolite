@@ -2,6 +2,7 @@ use crate::layout::{LayoutContext, Node};
 use crate::style::{
     AlignItems, AlignSelf, BoxSizing, FlexDirection, FlexWrap, JustifyContent, Length, Style,
 };
+use crate::text::FontSpec;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -97,14 +98,9 @@ impl FlexLayoutEngine {
 
         let mut items: Vec<FlexItem> = Vec::new();
         for child in children {
-            let is_text_node_guess = {
-                let child_borrow = child.borrow();
-                child_borrow.text.is_some()
-                    && child_borrow.attributes.is_empty()
-                    && child_borrow.children.is_empty()
-            };
+            let is_text_node = child.borrow().is_text_node();
 
-            if is_text_node_guess {
+            if is_text_node {
                 let text = child.borrow().text.clone().unwrap_or_default();
                 if text.trim().is_empty() {
                     // Whitespace-only child text sequences are not rendered.
@@ -490,10 +486,40 @@ fn base_sizes_for_item(
         _ => None,
     };
 
-    // TODO handle proper size.
-    // These defaults are border-box sizes.
-    let width = width_opt.unwrap_or(100.0);
-    let height = height_opt.unwrap_or(30.0);
+    let mut width = width_opt.unwrap_or(100.0);
+    let mut height = height_opt.unwrap_or(30.0);
+
+    // If this looks like a text node and doesn't have explicit sizes, prefer intrinsic text sizing.
+    let is_text_node = node.borrow().is_text_node();
+
+    if is_text_node {
+        if let Some(text) = node.borrow().text.as_deref() {
+            let font = FontSpec::from_style(style);
+
+            if width_opt.is_none() {
+                let text_size = ctx.text_measurer.measure_unwrapped(text, &font);
+                width = text_size.width + padding_w + border_sum;
+            }
+
+            if height_opt.is_none() {
+                let text_size = match style.width {
+                    Some(Length::Px(specified_width_px)) if specified_width_px > 0.0 => {
+                        let content_max_width = match box_sizing {
+                            BoxSizing::ContentBox => specified_width_px,
+                            BoxSizing::BorderBox => {
+                                (specified_width_px - padding_w - border_sum).max(0.0)
+                            }
+                        };
+                        ctx.text_measurer
+                            .measure_wrapped(text, &font, content_max_width)
+                    }
+                    _ => ctx.text_measurer.measure_unwrapped(text, &font),
+                };
+
+                height = text_size.height + padding_h + border_sum;
+            }
+        }
+    }
 
     let (main_from_size, cross_from_size) = match direction {
         FlexDirection::Row | FlexDirection::RowReverse => (width, height),

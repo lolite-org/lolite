@@ -1,6 +1,7 @@
 use crate::{
     layout::RenderNode,
     style::{Length, Rgba},
+    text::{FontSpec, SkiaTextMeasurer},
 };
 use skia_safe::{Canvas, Color, Color4f, Paint, RRect, Rect};
 
@@ -72,17 +73,16 @@ impl<'a> Painter<'a> {
             let mut paint = Paint::new(text_color.to_color4f(), None);
             paint.set_anti_alias(true);
 
-            let x = node.bounds.x as f32;
-            let y = (node.bounds.y + node.bounds.height / 2.0) as f32;
+            let padding = style.padding.clone().unwrap_or_default();
+            let x = (node.bounds.x + padding.left.to_px()) as f32;
 
-            let typeface = skia_safe::FontMgr::default()
-                .match_family("Arial")
-                .match_style(skia_safe::FontStyle::normal())
-                .expect("Failed to load font");
+            let font_spec = FontSpec::from_style(style);
+            let font = SkiaTextMeasurer::make_font(&font_spec);
+            let (_scale, metrics) = font.metrics();
+            let baseline_y =
+                (node.bounds.y + padding.top.to_px() + (-metrics.ascent as f64)) as f32;
 
-            let font = skia_safe::Font::new(typeface, 12.0);
-
-            self.canvas.draw_str(text, (x, y), &font, &paint);
+            self.canvas.draw_str(text, (x, baseline_y), &font, &paint);
         }
         // Recursively paint the children
         for child in &node.children {

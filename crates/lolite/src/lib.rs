@@ -5,6 +5,7 @@ mod flex_layout;
 mod layout;
 mod painter;
 mod style;
+mod text;
 mod windowing;
 
 use commands::Command;

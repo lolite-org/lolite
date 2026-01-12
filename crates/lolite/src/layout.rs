@@ -1,6 +1,7 @@
 use crate::{
     flex_layout::FlexLayoutEngine,
     style::{BoxSizing, Length, Selector, Style, StyleSheet},
+    text::{default_text_measurer, FontSpec, TextMeasurer},
     Id,
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
@@ -9,6 +10,12 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 pub struct Layout {
     pub bounds: Rect,
     pub style: Arc<Style>,
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+pub struct Size {
+    pub width: f64,
+    pub height: f64,
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -59,6 +66,10 @@ impl Node {
 
     pub fn add_child(&mut self, child: Rc<RefCell<Node>>) {
         self.children.push(child);
+    }
+
+    pub fn is_text_node(&self) -> bool {
+        self.text.is_some()
     }
 }
 
@@ -150,6 +161,7 @@ pub struct LayoutContext {
     pub document: Document,
     pub style_sheet: StyleSheet,
     flex_layout_engine: FlexLayoutEngine,
+    pub text_measurer: Arc<dyn TextMeasurer>,
 }
 
 impl LayoutContext {
@@ -158,11 +170,14 @@ impl LayoutContext {
             document: Document::new(),
             style_sheet: StyleSheet::new(),
             flex_layout_engine: FlexLayoutEngine::new(),
+            text_measurer: default_text_measurer(),
         }
     }
 
     pub fn layout(&mut self) {
+        self.text_measurer.begin_layout_pass();
         self.layout_node(self.document.root.clone(), 0.0, 0.0);
+        self.text_measurer.end_layout_pass_and_sweep();
     }
 
     pub fn layout_node(&self, node: Rc<RefCell<Node>>, x: f64, y: f64) {
@@ -201,6 +216,7 @@ impl LayoutContext {
         }
 
         let is_leaf = node.borrow().children.is_empty();
+        let is_text_node = node.borrow().is_text_node();
 
         // Lolite stores `layout.bounds` as the element's border-box.
         // `box-sizing` determines whether CSS `width/height` refer to the content-box or border-box.
@@ -223,10 +239,48 @@ impl LayoutContext {
             };
 
         if is_leaf {
-            // Leaf node - use specified dimensions or defaults
+            // Leaf node - use specified dimensions or defaults.
+            // If this is a text node, prefer intrinsic text sizing.
+            let mut fallback_width_border_box = 100.0;
+            let mut fallback_height_border_box = 30.0;
+
+            if is_text_node {
+                if let Some(text) = node.borrow().text.as_deref() {
+                    let font = FontSpec::from_style(&style);
+
+                    // Width: if not specified, use unwrapped intrinsic width.
+                    if matches!(style.width, Some(Length::Auto)) {
+                        let text_size = self.text_measurer.measure_unwrapped(text, &font);
+                        fallback_width_border_box = text_size.width + padding_w + border_sum;
+                    }
+
+                    // Height: if not specified, try to wrap to a specified width (if any), else unwrapped.
+                    if matches!(style.height, Some(Length::Auto)) {
+                        let text_size = match style.width {
+                            Some(Length::Px(specified_width_px)) if specified_width_px > 0.0 => {
+                                // Wrap within the content box width.
+                                let content_max_width = match resolved_box_sizing {
+                                    BoxSizing::ContentBox => specified_width_px,
+                                    BoxSizing::BorderBox => {
+                                        (specified_width_px - padding_w - border_sum).max(0.0)
+                                    }
+                                };
+                                self.text_measurer
+                                    .measure_wrapped(text, &font, content_max_width)
+                            }
+                            _ => self.text_measurer.measure_unwrapped(text, &font),
+                        };
+
+                        fallback_height_border_box = text_size.height + padding_h + border_sum;
+                    }
+                }
+            }
+
             let mut node_borrow = node.borrow_mut();
-            node_borrow.layout.bounds.width = resolve_border_box(style.width, 100.0, padding_w);
-            node_borrow.layout.bounds.height = resolve_border_box(style.height, 30.0, padding_h);
+            node_borrow.layout.bounds.width =
+                resolve_border_box(style.width, fallback_width_border_box, padding_w);
+            node_borrow.layout.bounds.height =
+                resolve_border_box(style.height, fallback_height_border_box, padding_h);
             node_borrow.layout.style = Arc::new(style);
         } else {
             // Container node - handle flexbox layout
