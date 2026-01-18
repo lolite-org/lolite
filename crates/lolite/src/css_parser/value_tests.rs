@@ -1,5 +1,5 @@
 use crate::css_parser::parse_css;
-use crate::style::{BoxSizing, Length, Selector};
+use crate::style::{BoxSizing, Length, Radius, Selector};
 
 #[test]
 fn test_parse_lengths() {
@@ -101,18 +101,128 @@ fn test_border_radius_corner_properties() {
     let rule = &stylesheet.rules[0];
     assert_eq!(rule.selector, Selector::Class("corners".to_string()));
 
-    assert!(rule.declarations.iter().any(|d| {
-        matches!(d.border_radius.top_left, Some(Length::Px(v)) if (v - 1.0).abs() < f64::EPSILON)
-    }));
-    assert!(rule.declarations.iter().any(|d| {
-        matches!(d.border_radius.top_right, Some(Length::Px(v)) if (v - 2.0).abs() < f64::EPSILON)
-    }));
-    assert!(rule.declarations.iter().any(|d| {
-        matches!(d.border_radius.bottom_right, Some(Length::Px(v)) if (v - 3.0).abs() < f64::EPSILON)
-    }));
-    assert!(rule.declarations.iter().any(|d| {
-        matches!(d.border_radius.bottom_left, Some(Length::Px(v)) if (v - 4.0).abs() < f64::EPSILON)
-    }));
+    assert!(rule
+        .declarations
+        .iter()
+        .any(|d| match d.border_radius.top_left {
+            Some(Radius {
+                x: Length::Px(vx),
+                y: Length::Px(vy),
+            }) => (vx - 1.0).abs() < f64::EPSILON && (vy - 1.0).abs() < f64::EPSILON,
+            _ => false,
+        }));
+    assert!(rule
+        .declarations
+        .iter()
+        .any(|d| match d.border_radius.top_right {
+            Some(Radius {
+                x: Length::Px(vx),
+                y: Length::Px(vy),
+            }) => (vx - 2.0).abs() < f64::EPSILON && (vy - 2.0).abs() < f64::EPSILON,
+            _ => false,
+        }));
+    assert!(rule
+        .declarations
+        .iter()
+        .any(|d| match d.border_radius.bottom_right {
+            Some(Radius {
+                x: Length::Px(vx),
+                y: Length::Px(vy),
+            }) => (vx - 3.0).abs() < f64::EPSILON && (vy - 3.0).abs() < f64::EPSILON,
+            _ => false,
+        }));
+    assert!(rule
+        .declarations
+        .iter()
+        .any(|d| match d.border_radius.bottom_left {
+            Some(Radius {
+                x: Length::Px(vx),
+                y: Length::Px(vy),
+            }) => (vx - 4.0).abs() < f64::EPSILON && (vy - 4.0).abs() < f64::EPSILON,
+            _ => false,
+        }));
+}
+
+#[test]
+fn test_border_radius_corner_two_values() {
+    let css = r#"
+        .corner {
+            border-top-left-radius: 10px 20px;
+        }
+    "#;
+
+    let stylesheet = parse_css(css).expect("Failed to parse border corner radius CSS");
+    assert_eq!(stylesheet.rules.len(), 1);
+
+    let rule = &stylesheet.rules[0];
+    assert_eq!(rule.selector, Selector::Class("corner".to_string()));
+
+    assert!(rule
+        .declarations
+        .iter()
+        .any(|d| match d.border_radius.top_left {
+            Some(Radius {
+                x: Length::Px(vx),
+                y: Length::Px(vy),
+            }) => (vx - 10.0).abs() < f64::EPSILON && (vy - 20.0).abs() < f64::EPSILON,
+            _ => false,
+        }));
+}
+
+#[test]
+fn test_border_radius_shorthand_slash_syntax() {
+    let css = r#"
+        .slash {
+            border-radius: 2px 1px 4px / 5px 6px;
+        }
+    "#;
+
+    let stylesheet = parse_css(css).expect("Failed to parse border-radius CSS");
+    assert_eq!(stylesheet.rules.len(), 1);
+    let rule = &stylesheet.rules[0];
+
+    // Horizontal: 2,1,4 -> tl=2 tr=1 br=4 bl=1
+    // Vertical:   5,6   -> tl=5 tr=6 br=5 bl=6
+    assert!(rule
+        .declarations
+        .iter()
+        .any(|d| match d.border_radius.top_left {
+            Some(Radius {
+                x: Length::Px(vx),
+                y: Length::Px(vy),
+            }) => (vx - 2.0).abs() < f64::EPSILON && (vy - 5.0).abs() < f64::EPSILON,
+            _ => false,
+        }));
+    assert!(rule
+        .declarations
+        .iter()
+        .any(|d| match d.border_radius.top_right {
+            Some(Radius {
+                x: Length::Px(vx),
+                y: Length::Px(vy),
+            }) => (vx - 1.0).abs() < f64::EPSILON && (vy - 6.0).abs() < f64::EPSILON,
+            _ => false,
+        }));
+    assert!(rule
+        .declarations
+        .iter()
+        .any(|d| match d.border_radius.bottom_right {
+            Some(Radius {
+                x: Length::Px(vx),
+                y: Length::Px(vy),
+            }) => (vx - 4.0).abs() < f64::EPSILON && (vy - 5.0).abs() < f64::EPSILON,
+            _ => false,
+        }));
+    assert!(rule
+        .declarations
+        .iter()
+        .any(|d| match d.border_radius.bottom_left {
+            Some(Radius {
+                x: Length::Px(vx),
+                y: Length::Px(vy),
+            }) => (vx - 1.0).abs() < f64::EPSILON && (vy - 6.0).abs() < f64::EPSILON,
+            _ => false,
+        }));
 }
 
 #[test]

@@ -151,33 +151,19 @@ impl<'i> DeclarationParser<'i> for StyleDeclarationParser {
                 self.parse_border_shorthand(input, &mut style)?;
             }
             "border-radius" => {
-                let first = self.parse_length_value(input)?;
-                let second = input
-                    .try_parse(|input| self.parse_length_value(input))
-                    .unwrap_or(first.clone());
-                let third = input
-                    .try_parse(|input| self.parse_length_value(input))
-                    .unwrap_or(first.clone());
-                let fourth = input
-                    .try_parse(|input| self.parse_length_value(input))
-                    .unwrap_or(second.clone());
-
-                style.border_radius.top_left = Some(first);
-                style.border_radius.top_right = Some(second);
-                style.border_radius.bottom_right = Some(third);
-                style.border_radius.bottom_left = Some(fourth);
+                self.parse_border_radius_shorthand(input, &mut style)?;
             }
             "border-top-left-radius" => {
-                style.border_radius.top_left = Some(self.parse_length_value(input)?);
+                self.parse_border_corner_radius(input, &mut style.border_radius.top_left)?;
             }
             "border-top-right-radius" => {
-                style.border_radius.top_right = Some(self.parse_length_value(input)?);
+                self.parse_border_corner_radius(input, &mut style.border_radius.top_right)?;
             }
             "border-bottom-right-radius" => {
-                style.border_radius.bottom_right = Some(self.parse_length_value(input)?);
+                self.parse_border_corner_radius(input, &mut style.border_radius.bottom_right)?;
             }
             "border-bottom-left-radius" => {
-                style.border_radius.bottom_left = Some(self.parse_length_value(input)?);
+                self.parse_border_corner_radius(input, &mut style.border_radius.bottom_left)?;
             }
             "box-sizing" => {
                 let ident = input.expect_ident()?;

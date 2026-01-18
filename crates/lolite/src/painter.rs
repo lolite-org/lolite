@@ -37,34 +37,42 @@ impl<'a> Painter<'a> {
                 .border_radius
                 .top_left
                 .as_ref()
-                .map(|l| l.to_px())
-                .unwrap_or(0.0) as f32;
+                .map(|r| (r.x.to_px() as f32, r.y.to_px() as f32));
             let tr = style
                 .border_radius
                 .top_right
                 .as_ref()
-                .map(|l| l.to_px())
-                .unwrap_or(0.0) as f32;
+                .map(|r| (r.x.to_px() as f32, r.y.to_px() as f32));
             let br = style
                 .border_radius
                 .bottom_right
                 .as_ref()
-                .map(|l| l.to_px())
-                .unwrap_or(0.0) as f32;
+                .map(|r| (r.x.to_px() as f32, r.y.to_px() as f32));
             let bl = style
                 .border_radius
                 .bottom_left
                 .as_ref()
-                .map(|l| l.to_px())
-                .unwrap_or(0.0) as f32;
+                .map(|r| (r.x.to_px() as f32, r.y.to_px() as f32));
 
             RRect::new_rect_radii(
                 client_rect,
                 &[
-                    skia_safe::Vector::new(tl, tl),
-                    skia_safe::Vector::new(tr, tr),
-                    skia_safe::Vector::new(br, br),
-                    skia_safe::Vector::new(bl, bl),
+                    skia_safe::Vector::new(
+                        tl.map(|v| v.0).unwrap_or(0.0),
+                        tl.map(|v| v.1).unwrap_or(0.0),
+                    ),
+                    skia_safe::Vector::new(
+                        tr.map(|v| v.0).unwrap_or(0.0),
+                        tr.map(|v| v.1).unwrap_or(0.0),
+                    ),
+                    skia_safe::Vector::new(
+                        br.map(|v| v.0).unwrap_or(0.0),
+                        br.map(|v| v.1).unwrap_or(0.0),
+                    ),
+                    skia_safe::Vector::new(
+                        bl.map(|v| v.0).unwrap_or(0.0),
+                        bl.map(|v| v.1).unwrap_or(0.0),
+                    ),
                 ],
             )
         };

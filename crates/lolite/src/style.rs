@@ -8,7 +8,7 @@ pub struct Rgba {
     pub a: u8,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
 #[allow(unused)]
 pub enum Length {
     #[default]
@@ -105,12 +105,18 @@ impl Directional<Option<Length>> {
     }
 }
 
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct Radius {
+    pub x: Length,
+    pub y: Length,
+}
+
 #[derive(Clone, Default)]
 pub struct BorderRadius {
-    pub top_left: Option<Length>,
-    pub top_right: Option<Length>,
-    pub bottom_right: Option<Length>,
-    pub bottom_left: Option<Length>,
+    pub top_left: Option<Radius>,
+    pub top_right: Option<Radius>,
+    pub bottom_right: Option<Radius>,
+    pub bottom_left: Option<Radius>,
 }
 
 impl BorderRadius {
