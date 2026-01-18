@@ -235,7 +235,6 @@ pub struct Style {
     pub justify_content: Option<JustifyContent>,
     pub align_items: Option<AlignItems>,
     pub align_content: Option<AlignContent>,
-    pub gap: Option<Length>,
     pub row_gap: Option<Length>,
     pub column_gap: Option<Length>,
 

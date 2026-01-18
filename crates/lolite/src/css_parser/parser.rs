@@ -341,7 +341,9 @@ impl<'i> DeclarationParser<'i> for StyleDeclarationParser {
                 style.order = Some(value as i32);
             }
             "gap" => {
-                style.gap = Some(self.parse_length_value(input)?);
+                let gap = self.parse_length_value(input)?;
+                style.row_gap = Some(gap);
+                style.column_gap = Some(gap);
             }
             "row-gap" => {
                 style.row_gap = Some(self.parse_length_value(input)?);

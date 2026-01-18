@@ -75,7 +75,11 @@ impl FlexLayoutEngine {
         let available_cross =
             determine_available_space(container_cross, container_style, &direction, Axis::Cross);
 
-        let (row_gap_px, column_gap_px) = gaps_px(container_style);
+        let row_gap_px = container_style.row_gap.unwrap_or(Length::Px(0.0)).to_px();
+        let column_gap_px = container_style
+            .column_gap
+            .unwrap_or(Length::Px(0.0))
+            .to_px();
         let (main_gap_px, cross_gap_px) = match direction {
             FlexDirection::Row | FlexDirection::RowReverse => (column_gap_px, row_gap_px),
             FlexDirection::Column | FlexDirection::ColumnReverse => (row_gap_px, column_gap_px),
@@ -773,17 +777,6 @@ fn align_content_offsets(
             (0.0, base_gap)
         }
     }
-}
-
-fn gaps_px(style: &Style) -> (f64, f64) {
-    if let Some(gap) = style.gap.as_ref() {
-        let px = gap.to_px();
-        return (px, px);
-    }
-
-    let row_gap = style.row_gap.as_ref().map(|l| l.to_px()).unwrap_or(0.0);
-    let col_gap = style.column_gap.as_ref().map(|l| l.to_px()).unwrap_or(0.0);
-    (row_gap, col_gap)
 }
 
 fn justify_offsets(

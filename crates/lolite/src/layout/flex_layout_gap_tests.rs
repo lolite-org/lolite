@@ -18,7 +18,7 @@ fn create_ctx() -> LayoutContext {
 fn create_flex_container_with_gap(
     ctx: &mut LayoutContext,
     flex_direction: Option<FlexDirection>,
-    gap: Option<f64>,
+    gap_shorthand: Option<f64>,
     row_gap: Option<f64>,
     column_gap: Option<f64>,
     width: Option<f64>,
@@ -28,18 +28,33 @@ fn create_flex_container_with_gap(
 
     // Add a CSS rule for the flex container
     let class_name = format!("flex_container_{}", container_id.0);
+    let mut declarations = Vec::new();
+
+    // Base declaration: individual row/column gaps.
+    declarations.push(Style {
+        display: Display::Flex,
+        flex_direction,
+        row_gap: row_gap.map(Length::Px),
+        column_gap: column_gap.map(Length::Px),
+        width: width.map(Length::Px),
+        height: height.map(Length::Px),
+        ..Default::default()
+    });
+
+    // Gap shorthand is represented as setting both row/column gap.
+    // Placing it as a later declaration preserves the old test semantics
+    // that shorthand can override earlier individual gaps.
+    if let Some(gap) = gap_shorthand {
+        declarations.push(Style {
+            row_gap: Some(Length::Px(gap)),
+            column_gap: Some(Length::Px(gap)),
+            ..Default::default()
+        });
+    }
+
     ctx.style_sheet.add_rule(Rule {
         selector: Selector::Class(class_name.clone()),
-        declarations: vec![Style {
-            display: Display::Flex,
-            flex_direction,
-            gap: gap.map(Length::Px),
-            row_gap: row_gap.map(Length::Px),
-            column_gap: column_gap.map(Length::Px),
-            width: width.map(Length::Px),
-            height: height.map(Length::Px),
-            ..Default::default()
-        }],
+        declarations,
     });
 
     ctx.document
@@ -193,7 +208,7 @@ fn test_gap_shorthand_row_direction() {
     let container = create_flex_container_with_gap(
         &mut ctx,
         Some(FlexDirection::Row),
-        Some(25.0), // 25px gap (both row and column)
+        Some(25.0), // 25px gap shorthand (both row and column)
         None,
         None,
         Some(300.0),
