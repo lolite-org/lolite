@@ -109,9 +109,7 @@ impl Directional<Option<Length>> {
 pub struct BorderRadius {
     pub top_left: Length,
     pub top_right: Length,
-    #[allow(unused)]
     pub bottom_right: Length,
-    #[allow(unused)]
     pub bottom_left: Length,
 }
 

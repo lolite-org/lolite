@@ -31,10 +31,26 @@ impl<'a> Painter<'a> {
         );
 
         let client_rrect = if let Some(border_radius) = &style.border_radius {
-            RRect::new_rect_xy(
+            RRect::new_rect_radii(
                 client_rect,
-                border_radius.top_left.to_px() as f32,
-                border_radius.top_right.to_px() as f32,
+                &[
+                    skia_safe::Vector::new(
+                        border_radius.top_left.to_px() as f32,
+                        border_radius.top_left.to_px() as f32,
+                    ),
+                    skia_safe::Vector::new(
+                        border_radius.top_right.to_px() as f32,
+                        border_radius.top_right.to_px() as f32,
+                    ),
+                    skia_safe::Vector::new(
+                        border_radius.bottom_right.to_px() as f32,
+                        border_radius.bottom_right.to_px() as f32,
+                    ),
+                    skia_safe::Vector::new(
+                        border_radius.bottom_left.to_px() as f32,
+                        border_radius.bottom_left.to_px() as f32,
+                    ),
+                ],
             )
         } else {
             RRect::new_rect_xy(client_rect, 0.0, 0.0)
