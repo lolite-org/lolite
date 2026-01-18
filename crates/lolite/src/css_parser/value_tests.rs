@@ -73,13 +73,46 @@ fn test_border_radius_parsing() {
     // All rules should parse successfully
     for rule in &stylesheet.rules {
         assert!(!rule.declarations.is_empty());
-        // Check that at least one declaration has border_radius
-        let has_border_radius = rule
-            .declarations
-            .iter()
-            .any(|decl| decl.border_radius.is_some());
+        // Check that at least one declaration sets a radius corner.
+        let has_border_radius = rule.declarations.iter().any(|decl| {
+            decl.border_radius.top_left.is_some()
+                || decl.border_radius.top_right.is_some()
+                || decl.border_radius.bottom_right.is_some()
+                || decl.border_radius.bottom_left.is_some()
+        });
         assert!(has_border_radius, "Rule should have border-radius property");
     }
+}
+
+#[test]
+fn test_border_radius_corner_properties() {
+    let css = r#"
+        .corners {
+            border-top-left-radius: 1px;
+            border-top-right-radius: 2px;
+            border-bottom-right-radius: 3px;
+            border-bottom-left-radius: 4px;
+        }
+    "#;
+
+    let stylesheet = parse_css(css).expect("Failed to parse border corner radius CSS");
+    assert_eq!(stylesheet.rules.len(), 1);
+
+    let rule = &stylesheet.rules[0];
+    assert_eq!(rule.selector, Selector::Class("corners".to_string()));
+
+    assert!(rule.declarations.iter().any(|d| {
+        matches!(d.border_radius.top_left, Some(Length::Px(v)) if (v - 1.0).abs() < f64::EPSILON)
+    }));
+    assert!(rule.declarations.iter().any(|d| {
+        matches!(d.border_radius.top_right, Some(Length::Px(v)) if (v - 2.0).abs() < f64::EPSILON)
+    }));
+    assert!(rule.declarations.iter().any(|d| {
+        matches!(d.border_radius.bottom_right, Some(Length::Px(v)) if (v - 3.0).abs() < f64::EPSILON)
+    }));
+    assert!(rule.declarations.iter().any(|d| {
+        matches!(d.border_radius.bottom_left, Some(Length::Px(v)) if (v - 4.0).abs() < f64::EPSILON)
+    }));
 }
 
 #[test]

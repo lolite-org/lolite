@@ -1,6 +1,6 @@
 use crate::style::{
-    AlignContent, AlignItems, AlignSelf, BorderRadius, BoxSizing, Directional, Display,
-    FlexDirection, FlexWrap, JustifyContent, Rule, Selector, Style, StyleSheet,
+    AlignContent, AlignItems, AlignSelf, BoxSizing, Directional, Display, FlexDirection, FlexWrap,
+    JustifyContent, Rule, Selector, Style, StyleSheet,
 };
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,
@@ -162,12 +162,22 @@ impl<'i> DeclarationParser<'i> for StyleDeclarationParser {
                     .try_parse(|input| self.parse_length_value(input))
                     .unwrap_or(second.clone());
 
-                style.border_radius = Some(BorderRadius {
-                    top_left: first,
-                    top_right: second,
-                    bottom_right: third,
-                    bottom_left: fourth,
-                });
+                style.border_radius.top_left = Some(first);
+                style.border_radius.top_right = Some(second);
+                style.border_radius.bottom_right = Some(third);
+                style.border_radius.bottom_left = Some(fourth);
+            }
+            "border-top-left-radius" => {
+                style.border_radius.top_left = Some(self.parse_length_value(input)?);
+            }
+            "border-top-right-radius" => {
+                style.border_radius.top_right = Some(self.parse_length_value(input)?);
+            }
+            "border-bottom-right-radius" => {
+                style.border_radius.bottom_right = Some(self.parse_length_value(input)?);
+            }
+            "border-bottom-left-radius" => {
+                style.border_radius.bottom_left = Some(self.parse_length_value(input)?);
             }
             "box-sizing" => {
                 let ident = input.expect_ident()?;

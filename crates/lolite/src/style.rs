@@ -107,10 +107,34 @@ impl Directional<Option<Length>> {
 
 #[derive(Clone, Default)]
 pub struct BorderRadius {
-    pub top_left: Length,
-    pub top_right: Length,
-    pub bottom_right: Length,
-    pub bottom_left: Length,
+    pub top_left: Option<Length>,
+    pub top_right: Option<Length>,
+    pub bottom_right: Option<Length>,
+    pub bottom_left: Option<Length>,
+}
+
+impl BorderRadius {
+    pub fn merge(&mut self, other: &Self) {
+        if let Some(v) = &other.top_left {
+            self.top_left = Some(v.clone());
+        }
+        if let Some(v) = &other.top_right {
+            self.top_right = Some(v.clone());
+        }
+        if let Some(v) = &other.bottom_right {
+            self.bottom_right = Some(v.clone());
+        }
+        if let Some(v) = &other.bottom_left {
+            self.bottom_left = Some(v.clone());
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.top_left.is_none()
+            && self.top_right.is_none()
+            && self.bottom_right.is_none()
+            && self.bottom_left.is_none()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -216,7 +240,8 @@ pub struct Style {
     pub border_width: Directional<Option<Length>>,
     #[merge_by_method_call]
     pub border_style: Directional<Option<BorderStyle>>,
-    pub border_radius: Option<BorderRadius>,
+    #[merge_by_method_call]
+    pub border_radius: BorderRadius,
     pub box_sizing: Option<BoxSizing>,
     #[merge_by_method_call]
     pub margin: Directional<Option<Length>>,

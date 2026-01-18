@@ -30,30 +30,43 @@ impl<'a> Painter<'a> {
             (node.bounds.y + node.bounds.height) as f32,
         );
 
-        let client_rrect = if let Some(border_radius) = &style.border_radius {
+        let client_rrect = if style.border_radius.is_empty() {
+            RRect::new_rect_xy(client_rect, 0.0, 0.0)
+        } else {
+            let tl = style
+                .border_radius
+                .top_left
+                .as_ref()
+                .map(|l| l.to_px())
+                .unwrap_or(0.0) as f32;
+            let tr = style
+                .border_radius
+                .top_right
+                .as_ref()
+                .map(|l| l.to_px())
+                .unwrap_or(0.0) as f32;
+            let br = style
+                .border_radius
+                .bottom_right
+                .as_ref()
+                .map(|l| l.to_px())
+                .unwrap_or(0.0) as f32;
+            let bl = style
+                .border_radius
+                .bottom_left
+                .as_ref()
+                .map(|l| l.to_px())
+                .unwrap_or(0.0) as f32;
+
             RRect::new_rect_radii(
                 client_rect,
                 &[
-                    skia_safe::Vector::new(
-                        border_radius.top_left.to_px() as f32,
-                        border_radius.top_left.to_px() as f32,
-                    ),
-                    skia_safe::Vector::new(
-                        border_radius.top_right.to_px() as f32,
-                        border_radius.top_right.to_px() as f32,
-                    ),
-                    skia_safe::Vector::new(
-                        border_radius.bottom_right.to_px() as f32,
-                        border_radius.bottom_right.to_px() as f32,
-                    ),
-                    skia_safe::Vector::new(
-                        border_radius.bottom_left.to_px() as f32,
-                        border_radius.bottom_left.to_px() as f32,
-                    ),
+                    skia_safe::Vector::new(tl, tl),
+                    skia_safe::Vector::new(tr, tr),
+                    skia_safe::Vector::new(br, br),
+                    skia_safe::Vector::new(bl, bl),
                 ],
             )
-        } else {
-            RRect::new_rect_xy(client_rect, 0.0, 0.0)
         };
 
         if let Some(background_color) = &style.background_color {
