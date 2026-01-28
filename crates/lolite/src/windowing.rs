@@ -66,6 +66,11 @@ pub fn run_with_backend(
         BackendType::OpenGL => {
             run_with_backend_impl::<crate::backend::gl::OpenGlBackend>(params, message_sender)
         }
+
+        #[cfg(all(target_os = "linux", feature = "vulkan"))]
+        BackendType::Vulkan => {
+            run_with_backend_impl::<crate::backend::vulkan::VulkanBackend>(params, message_sender)
+        }
     }
 }
 
@@ -90,13 +95,24 @@ fn run_with_backend_impl<'a, B: RenderingBackend>(
     struct Application<'a, B: RenderingBackend> {
         backend: Option<B>,
         params: &'a mut crate::backend::Params,
+        startup_error: Option<anyhow::Error>,
     }
 
     impl<'a, B: RenderingBackend> ApplicationHandler<WindowMessage> for Application<'a, B> {
         fn resumed(&mut self, event_loop: &ActiveEventLoop) {
             assert!(self.backend.is_none());
 
-            self.backend = Some(B::new(event_loop).expect("Failed to create rendering backend"));
+            match B::new(event_loop) {
+                Ok(backend) => {
+                    self.backend = Some(backend);
+                }
+                Err(err) => {
+                    eprintln!("Failed to create rendering backend: {err:?}");
+                    self.startup_error = Some(err);
+                    event_loop.exit();
+                    return;
+                }
+            }
 
             if let Some(ref backend) = self.backend {
                 backend.request_redraw();
@@ -165,9 +181,14 @@ fn run_with_backend_impl<'a, B: RenderingBackend>(
     let mut application = Application::<'a, B> {
         backend: None,
         params,
+        startup_error: None,
     };
 
     event_loop.run_app(&mut application)?;
+
+    if let Some(err) = application.startup_error {
+        return Err(err);
+    }
 
     Ok(())
 }

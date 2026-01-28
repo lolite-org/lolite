@@ -8,6 +8,8 @@ pub mod d3d12;
 pub mod gl;
 #[cfg(target_os = "macos")]
 pub mod metal;
+#[cfg(all(target_os = "linux", feature = "vulkan"))]
+pub mod vulkan;
 
 /// Common parameters shared across all rendering backends
 pub struct Params {
@@ -64,6 +66,8 @@ pub enum BackendType {
     Metal,
     #[cfg(target_os = "linux")]
     OpenGL,
+    #[cfg(all(target_os = "linux", feature = "vulkan"))]
+    Vulkan,
 }
 
 impl BackendType {
@@ -91,6 +95,8 @@ impl BackendType {
             BackendType::Metal => "Metal",
             #[cfg(target_os = "linux")]
             BackendType::OpenGL => "OpenGL",
+            #[cfg(all(target_os = "linux", feature = "vulkan"))]
+            BackendType::Vulkan => "Vulkan",
         }
     }
 }

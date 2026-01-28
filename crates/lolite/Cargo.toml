@@ -3,6 +3,10 @@ name = "lolite"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# Enables the Linux Vulkan backend (ash + Skia Vulkan).
+vulkan = ["dep:ash", "dep:ash-window", "skia-safe/vulkan"]
+
 [dependencies]
 winit = "0.30.8"
 anyhow = "1.0.95"
@@ -38,6 +42,10 @@ skia-safe = { version = "0.87.0", features = ["gl"] }
 gl = "0.14"
 glutin = "0.32"
 glutin-winit = "0.5"
+
+# Vulkan bits are opt-in via the `vulkan` feature.
+ash = { version = "0.38", optional = true }
+ash-window = { version = "0.13", optional = true }
 raw-window-handle = "0.6"
 
 
