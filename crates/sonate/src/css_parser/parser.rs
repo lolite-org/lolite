@@ -1,6 +1,6 @@
 use crate::style::{
     AlignContent, AlignItems, AlignSelf, BoxSizing, Directional, Display, FlexDirection, FlexWrap,
-    JustifyContent, Rule, Selector, Style, StyleSheet,
+    JustifyContent, Overflow, Rule, Selector, Style, StyleSheet,
 };
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,
@@ -206,6 +206,16 @@ impl<'i> DeclarationParser<'i> for StyleDeclarationParser {
                 style.box_sizing = Some(match ident.as_ref() {
                     "content-box" => BoxSizing::ContentBox,
                     "border-box" => BoxSizing::BorderBox,
+                    _ => return Err(input.new_error_for_next_token()),
+                });
+            }
+            "overflow" => {
+                let ident = input.expect_ident()?;
+                style.overflow = Some(match ident.as_ref() {
+                    "visible" => Overflow::Visible,
+                    "hidden" => Overflow::Hidden,
+                    "scroll" => Overflow::Scroll,
+                    "auto" => Overflow::Auto,
                     _ => return Err(input.new_error_for_next_token()),
                 });
             }
