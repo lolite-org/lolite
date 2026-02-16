@@ -1,9 +1,9 @@
 use crate::{
     layout::RenderNode,
-    style::{BorderStyle, Length, Rgba},
+    style::{BorderStyle, Length, Overflow, Rgba},
     text::{FontSpec, SkiaTextMeasurer},
 };
-use skia_safe::{Canvas, Color, Color4f, Paint, RRect, Rect};
+use skia_safe::{Canvas, ClipOp, Color, Color4f, Paint, RRect, Rect};
 
 pub struct Painter<'a> {
     canvas: &'a Canvas,
@@ -113,6 +113,27 @@ impl<'a> Painter<'a> {
             }
         }
 
+        let overflow_hidden = matches!(style.overflow, Some(Overflow::Hidden));
+
+        // overflow clipping applies to *content* (text + descendants), not background/border.
+        if overflow_hidden {
+            let border = style.border_width.resolved();
+            let left = border.left.to_px();
+            let top = border.top.to_px();
+            let right = border.right.to_px();
+            let bottom = border.bottom.to_px();
+
+            let clip_rect = Rect::new(
+                (node.bounds.x + left) as f32,
+                (node.bounds.y + top) as f32,
+                (node.bounds.x + node.bounds.width - right) as f32,
+                (node.bounds.y + node.bounds.height - bottom) as f32,
+            );
+
+            self.canvas.save();
+            self.canvas.clip_rect(clip_rect, ClipOp::Intersect, true);
+        }
+
         // Draw the node's text if it has any
         if let Some(text) = &node.text {
             let text_color = style.color.unwrap_or(Rgba {
@@ -136,9 +157,14 @@ impl<'a> Painter<'a> {
 
             self.canvas.draw_str(text, (x, baseline_y), &font, &paint);
         }
+
         // Recursively paint the children
         for child in &node.children {
             self.paint_node(child);
+        }
+
+        if overflow_hidden {
+            self.canvas.restore();
         }
     }
 }

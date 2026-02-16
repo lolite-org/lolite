@@ -1,6 +1,6 @@
 use crate::{
     flex_layout::FlexLayoutEngine,
-    style::{BoxSizing, Length, Style, StyleSheet},
+    style::{BoxSizing, Length, Overflow, Style, StyleSheet},
     text::{default_text_measurer, FontSpec, TextMeasurer},
     Id,
 };
@@ -45,6 +45,26 @@ impl Rect {
     #[allow(unused)]
     pub fn contains_point(&self, x: f64, y: f64) -> bool {
         x >= self.x && x <= self.x + self.width && y >= self.y && y <= self.y + self.height
+    }
+
+    pub fn intersect(&self, other: &Rect) -> Option<Rect> {
+        let x1 = self.x.max(other.x);
+        let y1 = self.y.max(other.y);
+        let x2 = (self.x + self.width).min(other.x + other.width);
+        let y2 = (self.y + self.height).min(other.y + other.height);
+
+        let w = x2 - x1;
+        let h = y2 - y1;
+        if w <= 0.0 || h <= 0.0 {
+            return None;
+        }
+
+        Some(Rect {
+            x: x1,
+            y: y1,
+            width: w,
+            height: h,
+        })
     }
 }
 
@@ -333,6 +353,58 @@ pub struct RenderNode {
     pub children: Vec<RenderNode>,
 }
 
+/// Intermediate representation that groups render output into stacking contexts.
+///
+/// This is intentionally built *alongside* the `RenderNode` tree so we can later
+/// compile it into a single paint-order list (and eventually sort entries by z-index).
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct StackingContext {
+    /// The element that establishes this context.
+    /// `None` means the root context.
+    pub owner: Option<Id>,
+
+    /// Ordered entries in this context.
+    ///
+    /// The order matches tree traversal order today (parent paints before children).
+    pub entries: Vec<StackingEntry>,
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+pub enum StackingEntry {
+    Node(RenderNode),
+    Context(StackingContext),
+}
+
+impl Default for StackingContext {
+    fn default() -> Self {
+        Self {
+            owner: None,
+            entries: Vec::new(),
+        }
+    }
+}
+
+impl StackingContext {
+    #[allow(dead_code)]
+    pub fn to_render_list(&self) -> Vec<RenderNode> {
+        let mut out = Vec::new();
+        self.write_render_list(&mut out);
+        out
+    }
+
+    #[allow(dead_code)]
+    fn write_render_list(&self, out: &mut Vec<RenderNode>) {
+        for entry in &self.entries {
+            match entry {
+                StackingEntry::Node(node) => out.push(node.clone()),
+                StackingEntry::Context(ctx) => ctx.write_render_list(out),
+            }
+        }
+    }
+}
+
 impl RenderNode {
     /// Find the element at the given position (x, y).
     ///
@@ -340,22 +412,122 @@ impl RenderNode {
     /// and subsequent elements are its parents up to the root.
     /// This enables event bubbling by providing the full parent chain.
     pub fn find_element_at_position(&self, x: f64, y: f64) -> Vec<Id> {
-        self.find_path_at_position(x, y).unwrap_or_default()
+        self.find_path_at_position(x, y, None).unwrap_or_default()
     }
 
-    fn find_path_at_position(&self, x: f64, y: f64) -> Option<Vec<Id>> {
+    fn find_path_at_position(&self, x: f64, y: f64, clip: Option<Rect>) -> Option<Vec<Id>> {
+        // The inherited clip applies to this node itself (it is part of the parent's contents).
+        if let Some(clip) = &clip {
+            if !clip.contains_point(x, y) {
+                return None;
+            }
+        }
+
         if !self.bounds.contains_point(x, y) {
             return None;
         }
 
+        // A node's overflow clip applies to its *descendants* (content), not to its own border box.
+        let descendant_clip = match self.style.overflow {
+            Some(Overflow::Hidden) => {
+                // Clip to padding-box (border-box inset by border widths).
+                let border = self.style.border_width.resolved();
+                let border_left = border.left.to_px();
+                let border_top = border.top.to_px();
+                let border_right = border.right.to_px();
+                let border_bottom = border.bottom.to_px();
+
+                let padding_box = Rect {
+                    x: self.bounds.x + border_left,
+                    y: self.bounds.y + border_top,
+                    width: (self.bounds.width - border_left - border_right).max(0.0),
+                    height: (self.bounds.height - border_top - border_bottom).max(0.0),
+                };
+
+                match clip {
+                    Some(c) => c.intersect(&padding_box),
+                    None => Some(padding_box),
+                }
+            }
+            _ => clip,
+        };
+
         for child in self.children.iter().rev() {
-            if let Some(mut path) = child.find_path_at_position(x, y) {
+            if let Some(mut path) = child.find_path_at_position(x, y, descendant_clip) {
                 path.push(self.id);
                 return Some(path);
             }
         }
 
         Some(vec![self.id])
+    }
+}
+
+fn creates_stacking_context(style: &Style) -> bool {
+    matches!(style.overflow, Some(Overflow::Hidden))
+}
+
+/// Builds both the `RenderNode` tree and an intermediate stacking-context tree.
+///
+/// The stacking-context tree contains ordered entries that can later be compiled
+/// into a flat render list in draw order.
+#[allow(dead_code)]
+pub fn build_render_tree_with_stacking(node: Rc<RefCell<Node>>) -> (RenderNode, StackingContext) {
+    let mut root_ctx = StackingContext::default();
+    let tree = build_render_tree_with_ctx(node, &mut root_ctx);
+    (tree, root_ctx)
+}
+
+fn build_render_tree_with_ctx(node: Rc<RefCell<Node>>, ctx: &mut StackingContext) -> RenderNode {
+    let (id, bounds, style, text, children_nodes) = {
+        let nb = node.borrow();
+        (
+            nb.id,
+            nb.layout.bounds,
+            nb.layout.style.clone(),
+            nb.text.clone(),
+            nb.children.clone(),
+        )
+    };
+
+    // Record a paint entry for this node itself. This RenderNode is used as a
+    // draw item, so it intentionally does not embed children.
+    ctx.entries.push(StackingEntry::Node(RenderNode {
+        id,
+        bounds,
+        style: style.clone(),
+        text: text.clone(),
+        children: Vec::new(),
+    }));
+
+    let mut render_children = Vec::with_capacity(children_nodes.len());
+
+    if creates_stacking_context(&style) {
+        let mut child_ctx = StackingContext {
+            owner: Some(id),
+            entries: Vec::new(),
+        };
+
+        for c in children_nodes {
+            let child_render = build_render_tree_with_ctx(c, &mut child_ctx);
+            render_children.push(child_render);
+        }
+
+        // Descendant paint entries are isolated in their own context.
+        ctx.entries.push(StackingEntry::Context(child_ctx));
+    } else {
+        for c in children_nodes {
+            let child_render = build_render_tree_with_ctx(c, ctx);
+            render_children.push(child_render);
+        }
+    }
+
+    RenderNode {
+        id,
+        bounds,
+        style,
+        text,
+        children: render_children,
     }
 }
 
