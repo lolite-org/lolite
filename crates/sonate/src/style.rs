@@ -244,6 +244,12 @@ pub enum Overflow {
     Auto,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ZIndex {
+    Auto,
+    Index(i32),
+}
+
 #[derive(Clone, Default, MergeProperties)]
 pub struct Style {
     pub display: Display,
@@ -285,6 +291,7 @@ pub struct Style {
     pub flex_basis: Option<Length>,
     pub align_self: Option<AlignSelf>,
     pub order: Option<i32>,
+    pub z_index: Option<ZIndex>,
 }
 
 pub struct StyleSheet {

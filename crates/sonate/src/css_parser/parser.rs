@@ -1,6 +1,6 @@
 use crate::style::{
     AlignContent, AlignItems, AlignSelf, BoxSizing, Directional, Display, FlexDirection, FlexWrap,
-    JustifyContent, Overflow, Rule, Selector, Style, StyleSheet,
+    JustifyContent, Overflow, Rule, Selector, Style, StyleSheet, ZIndex,
 };
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,
@@ -381,6 +381,14 @@ impl<'i> DeclarationParser<'i> for StyleDeclarationParser {
             "order" => {
                 let value = input.expect_number()?;
                 style.order = Some(value as i32);
+            }
+            "z-index" => {
+                if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
+                    style.z_index = Some(ZIndex::Auto);
+                } else {
+                    let value = input.expect_integer()?;
+                    style.z_index = Some(ZIndex::Index(value));
+                }
             }
             "gap" => {
                 let gap = self.parse_length_value(input)?;
