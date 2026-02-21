@@ -353,6 +353,24 @@ pub struct RenderNode {
     pub children: Vec<RenderNode>,
 }
 
+#[derive(Clone)]
+pub enum RenderOp {
+    DrawBackgroundBorder(RenderNode),
+    DrawText(RenderNode),
+    PushClip(Rect),
+    PopClip,
+}
+
+/// Snapshot types safe to share across threads.
+///
+/// Keeps the tree (useful for hit testing + inspection) plus a flat render list
+/// for painting.
+#[derive(Clone)]
+pub struct RenderSnapshot {
+    pub root: RenderNode,
+    pub render_list: Vec<RenderOp>,
+}
+
 /// Intermediate representation that groups render output into stacking contexts.
 ///
 /// This is intentionally built *alongside* the `RenderNode` tree so we can later
@@ -461,6 +479,65 @@ impl RenderNode {
 
         Some(vec![self.id])
     }
+}
+
+pub fn build_render_list(root: &RenderNode) -> Vec<RenderOp> {
+    let mut out = Vec::new();
+    build_render_list_inner(root, &mut out);
+    out
+}
+
+fn build_render_list_inner(node: &RenderNode, out: &mut Vec<RenderOp>) {
+    out.push(RenderOp::DrawBackgroundBorder(RenderNode {
+        id: node.id,
+        bounds: node.bounds,
+        style: node.style.clone(),
+        text: node.text.clone(),
+        children: Vec::new(),
+    }));
+
+    let overflow_hidden = matches!(node.style.overflow, Some(Overflow::Hidden));
+
+    if overflow_hidden {
+        // Clip to padding-box (border-box inset by border widths).
+        let border = node.style.border_width.resolved();
+        let left = border.left.to_px();
+        let top = border.top.to_px();
+        let right = border.right.to_px();
+        let bottom = border.bottom.to_px();
+
+        let clip_rect = Rect {
+            x: node.bounds.x + left,
+            y: node.bounds.y + top,
+            width: (node.bounds.width - left - right).max(0.0),
+            height: (node.bounds.height - top - bottom).max(0.0),
+        };
+
+        out.push(RenderOp::PushClip(clip_rect));
+    }
+
+    // Text paints as part of “content”, i.e. inside the overflow clip.
+    out.push(RenderOp::DrawText(RenderNode {
+        id: node.id,
+        bounds: node.bounds,
+        style: node.style.clone(),
+        text: node.text.clone(),
+        children: Vec::new(),
+    }));
+
+    for child in &node.children {
+        build_render_list_inner(child, out);
+    }
+
+    if overflow_hidden {
+        out.push(RenderOp::PopClip);
+    }
+}
+
+pub fn build_render_snapshot(root_node: Rc<RefCell<Node>>) -> RenderSnapshot {
+    let root = build_render_tree(root_node);
+    let render_list = build_render_list(&root);
+    RenderSnapshot { root, render_list }
 }
 
 fn creates_stacking_context(style: &Style) -> bool {

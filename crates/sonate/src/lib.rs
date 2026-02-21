@@ -10,7 +10,7 @@ mod text;
 mod windowing;
 
 use commands::Command;
-use layout::RenderNode;
+use layout::RenderSnapshot;
 use painter::Painter;
 use std::sync::Mutex;
 use std::sync::{
@@ -41,7 +41,7 @@ impl Id {
 #[derive(Clone)]
 pub struct Engine {
     sender: Sender<Command>,
-    snapshot: Arc<RwLock<Option<RenderNode>>>,
+    snapshot: Arc<RwLock<Option<RenderSnapshot>>>,
     root_id: Id,
     running: Arc<Mutex<()>>,
     message_sender: WindowMessageSender,
@@ -62,7 +62,7 @@ impl Engine {
     /// Create a new CSS engine instance
     pub fn new() -> Self {
         let (tx, rx): (Sender<Command>, Receiver<Command>) = channel();
-        let snapshot: Arc<RwLock<Option<RenderNode>>> = Arc::new(RwLock::new(None));
+        let snapshot: Arc<RwLock<Option<RenderSnapshot>>> = Arc::new(RwLock::new(None));
         let snapshot_for_thread = Arc::clone(&snapshot);
         let message_sender = WindowMessageSender::new();
         let message_sender_for_thread = message_sender.clone();
@@ -99,7 +99,7 @@ impl Engine {
             }),
             on_click: Box::new(move |x, y| {
                 if let Some(snapshot) = this2.get_current_snapshot() {
-                    let elements = snapshot.find_element_at_position(x, y);
+                    let elements = snapshot.root.find_element_at_position(x, y);
 
                     if let Some(ref on_click) = params.on_click {
                         on_click(x, y, elements);
@@ -153,7 +153,7 @@ impl Engine {
     }
 
     /// Get a cloned copy of the current render snapshot for drawing
-    fn get_current_snapshot(&self) -> Option<RenderNode> {
+    fn get_current_snapshot(&self) -> Option<RenderSnapshot> {
         self.snapshot.read().unwrap().as_ref().cloned()
     }
 }
