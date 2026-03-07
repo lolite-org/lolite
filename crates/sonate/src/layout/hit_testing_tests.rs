@@ -1,4 +1,5 @@
 use super::*;
+use crate::style::{Directional, Length, Overflow, Style};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 fn next_test_id() -> Id {
@@ -45,7 +46,7 @@ fn test_find_element_at_position_single_element() {
     }
 
     // Test point inside root
-    let tree = build_render_tree(ctx.document.root_node());
+    let tree = build_render_snapshot(ctx.document.root_node()).root;
 
     let result = tree.find_element_at_position(50.0, 50.0);
     assert_eq!(result.len(), 1);
@@ -122,7 +123,7 @@ fn test_find_element_at_position_nested_elements() {
         };
     }
 
-    let tree = build_render_tree(ctx.document.root_node());
+    let tree = build_render_snapshot(ctx.document.root_node()).root;
 
     // Test clicking on grandchild - should return [grandchild, child1, root]
     let result = tree.find_element_at_position(40.0, 40.0);
@@ -204,7 +205,7 @@ fn test_find_element_at_position_overlapping_siblings() {
         };
     }
 
-    let tree = build_render_tree(ctx.document.root_node());
+    let tree = build_render_snapshot(ctx.document.root_node()).root;
 
     // Test clicking in overlapping area - should hit child2 (last child, rendered on top)
     let result = tree.find_element_at_position(80.0, 80.0);
@@ -223,4 +224,72 @@ fn test_find_element_at_position_overlapping_siblings() {
     assert_eq!(result.len(), 2);
     assert_eq!(result[0], child2_id);
     assert_eq!(result[1], root_id);
+}
+
+#[test]
+fn test_find_element_at_position_respects_overflow_hidden_clip() {
+    let mut ctx = LayoutContext::new();
+    let root_id = ctx.document.root_id();
+
+    let container_id = ctx.document.create_node(next_test_id(), None);
+    let child_id = ctx.document.create_node(next_test_id(), None);
+
+    ctx.document.set_parent(root_id, container_id).unwrap();
+    ctx.document.set_parent(container_id, child_id).unwrap();
+
+    // Root bounds.
+    {
+        let root = ctx.document.root_node();
+        let mut root_borrow = root.borrow_mut();
+        root_borrow.layout.bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 200.0,
+        };
+    }
+
+    // Container has a 10px border and overflow:hidden, so its descendants are clipped to
+    // the padding-box (border-box inset by border widths).
+    {
+        let container = ctx.document.nodes.get(&container_id).unwrap();
+        let mut container_borrow = container.borrow_mut();
+        container_borrow.layout.bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+        };
+        let mut style = Style::default();
+        style.overflow = Some(Overflow::Hidden);
+        style.border_width = Directional::set_all(Some(Length::Px(10.0)));
+        container_borrow.layout.style = std::sync::Arc::new(style);
+    }
+
+    // Child overlaps the container's border area.
+    {
+        let child = ctx.document.nodes.get(&child_id).unwrap();
+        let mut child_borrow = child.borrow_mut();
+        child_borrow.layout.bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 20.0,
+            height: 20.0,
+        };
+    }
+
+    let tree = build_render_snapshot(ctx.document.root_node()).root;
+
+    // Point is within the container's border box but outside its padding-box -> should hit container.
+    let result = tree.find_element_at_position(5.0, 5.0);
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0], container_id);
+    assert_eq!(result[1], root_id);
+
+    // Point is within padding-box -> child is hittable.
+    let result = tree.find_element_at_position(15.0, 15.0);
+    assert_eq!(result.len(), 3);
+    assert_eq!(result[0], child_id);
+    assert_eq!(result[1], container_id);
+    assert_eq!(result[2], root_id);
 }

@@ -1,5 +1,5 @@
 use crate::css_parser::parse_css;
-use crate::layout::{build_render_tree, LayoutContext, RenderNode};
+use crate::layout::{build_render_snapshot, LayoutContext, RenderSnapshot};
 use crate::Id;
 use std::sync::{
     mpsc::{self, Receiver},
@@ -21,7 +21,7 @@ pub(crate) enum Command {
 
 pub(crate) fn handle_commands(
     rx: Receiver<Command>,
-    snapshot: Arc<RwLock<Option<RenderNode>>>,
+    snapshot: Arc<RwLock<Option<RenderSnapshot>>>,
     message_sender: WindowMessageSender,
 ) {
     let mut ctx = LayoutContext::new();
@@ -36,7 +36,7 @@ pub(crate) fn handle_commands(
                     // Deadline expired: run layout now
                     ctx.layout();
                     let root = ctx.document.root_node();
-                    let snap = build_render_tree(root);
+                    let snap = build_render_snapshot(root);
                     *snapshot.write().unwrap() = Some(snap);
                     message_sender.send(WindowMessage::Redraw);
                     deadline = None;
@@ -98,7 +98,7 @@ pub(crate) fn handle_commands(
                     // Immediate layout flush
                     ctx.layout();
                     let root = ctx.document.root_node();
-                    let snap = build_render_tree(root);
+                    let snap = build_render_snapshot(root);
                     *snapshot.write().unwrap() = Some(snap);
                     message_sender.send(WindowMessage::Redraw);
                     deadline = None;

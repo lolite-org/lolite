@@ -235,6 +235,21 @@ pub enum BoxSizing {
     BorderBox,
 }
 
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub enum Overflow {
+    #[default]
+    Visible,
+    Hidden,
+    Scroll,
+    Auto,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ZIndex {
+    Auto,
+    Index(i32),
+}
+
 #[derive(Clone, Default, MergeProperties)]
 pub struct Style {
     pub display: Display,
@@ -249,6 +264,7 @@ pub struct Style {
     #[merge_by_method_call]
     pub border_radius: BorderRadius,
     pub box_sizing: Option<BoxSizing>,
+    pub overflow: Option<Overflow>,
     #[merge_by_method_call]
     pub margin: Directional<Option<Length>>,
     #[merge_by_method_call]
@@ -275,6 +291,7 @@ pub struct Style {
     pub flex_basis: Option<Length>,
     pub align_self: Option<AlignSelf>,
     pub order: Option<i32>,
+    pub z_index: Option<ZIndex>,
 }
 
 pub struct StyleSheet {

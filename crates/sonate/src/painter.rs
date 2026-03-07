@@ -1,9 +1,9 @@
 use crate::{
-    layout::RenderNode,
+    layout::{RenderOp, RenderSnapshot},
     style::{BorderStyle, Length, Rgba},
     text::{FontSpec, SkiaTextMeasurer},
 };
-use skia_safe::{Canvas, Color, Color4f, Paint, RRect, Rect};
+use skia_safe::{Canvas, ClipOp, Color, Color4f, Paint, RRect, Rect};
 
 pub struct Painter<'a> {
     canvas: &'a Canvas,
@@ -14,13 +14,34 @@ impl<'a> Painter<'a> {
         Self { canvas }
     }
 
-    pub fn paint(&mut self, root: &RenderNode) {
+    pub fn paint(&mut self, snapshot: &RenderSnapshot) {
         self.canvas.clear(Color::WHITE);
-        self.paint_node(root);
+        self.paint_ops(&snapshot.render_list);
     }
 
-    fn paint_node(&mut self, node: &RenderNode) {
-        // Draw the node's background color if it has one
+    fn paint_ops(&mut self, ops: &[RenderOp]) {
+        for op in ops {
+            match op {
+                RenderOp::DrawBackgroundBorder(node) => self.paint_background_and_border(node),
+                RenderOp::DrawText(node) => self.paint_text(node),
+                RenderOp::PushClip(rect) => {
+                    self.canvas.save();
+                    let clip_rect = Rect::new(
+                        rect.x as f32,
+                        rect.y as f32,
+                        (rect.x + rect.width) as f32,
+                        (rect.y + rect.height) as f32,
+                    );
+                    self.canvas.clip_rect(clip_rect, ClipOp::Intersect, true);
+                }
+                RenderOp::PopClip => {
+                    self.canvas.restore();
+                }
+            }
+        }
+    }
+
+    fn paint_background_and_border(&mut self, node: &crate::layout::RenderNode) {
         let style = &node.style;
 
         let client_rect = Rect::new(
@@ -112,8 +133,11 @@ impl<'a> Painter<'a> {
                 self.canvas.draw_rrect(client_rrect, &paint);
             }
         }
+    }
 
-        // Draw the node's text if it has any
+    fn paint_text(&mut self, node: &crate::layout::RenderNode) {
+        let style = &node.style;
+
         if let Some(text) = &node.text {
             let text_color = style.color.unwrap_or(Rgba {
                 r: 0,
@@ -135,10 +159,6 @@ impl<'a> Painter<'a> {
                 (node.bounds.y + padding.top.to_px() + (-metrics.ascent as f64)) as f32;
 
             self.canvas.draw_str(text, (x, baseline_y), &font, &paint);
-        }
-        // Recursively paint the children
-        for child in &node.children {
-            self.paint_node(child);
         }
     }
 }

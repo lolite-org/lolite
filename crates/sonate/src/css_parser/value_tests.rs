@@ -1,5 +1,5 @@
 use crate::css_parser::parse_css;
-use crate::style::{BoxSizing, Length, Radius, Selector};
+use crate::style::{BoxSizing, Length, Overflow, Radius, Selector, ZIndex};
 
 #[test]
 fn test_parse_lengths() {
@@ -49,6 +49,56 @@ fn test_parse_box_sizing() {
         .declarations
         .iter()
         .any(|d| d.box_sizing == Some(BoxSizing::ContentBox)));
+}
+
+#[test]
+fn test_parse_overflow() {
+    let css = r#"
+        .a { overflow: hidden; }
+        .b { overflow: visible; }
+    "#;
+
+    let stylesheet = parse_css(css).expect("Failed to parse CSS");
+    assert_eq!(stylesheet.rules.len(), 2);
+
+    let a = &stylesheet.rules[0];
+    assert_eq!(a.selector, Selector::Class("a".to_string()));
+    assert!(a
+        .declarations
+        .iter()
+        .any(|d| d.overflow == Some(Overflow::Hidden)));
+
+    let b = &stylesheet.rules[1];
+    assert_eq!(b.selector, Selector::Class("b".to_string()));
+    assert!(b
+        .declarations
+        .iter()
+        .any(|d| d.overflow == Some(Overflow::Visible)));
+}
+
+#[test]
+fn test_parse_z_index() {
+    let css = r#"
+        .a { z-index: 10; }
+        .b { z-index: auto; }
+    "#;
+
+    let stylesheet = parse_css(css).expect("Failed to parse CSS");
+    assert_eq!(stylesheet.rules.len(), 2);
+
+    let a = &stylesheet.rules[0];
+    assert_eq!(a.selector, Selector::Class("a".to_string()));
+    assert!(a
+        .declarations
+        .iter()
+        .any(|d| d.z_index == Some(ZIndex::Index(10))));
+
+    let b = &stylesheet.rules[1];
+    assert_eq!(b.selector, Selector::Class("b".to_string()));
+    assert!(b
+        .declarations
+        .iter()
+        .any(|d| d.z_index == Some(ZIndex::Auto)));
 }
 
 #[test]
