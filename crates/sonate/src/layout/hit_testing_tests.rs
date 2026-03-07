@@ -46,7 +46,7 @@ fn test_find_element_at_position_single_element() {
     }
 
     // Test point inside root
-    let tree = build_render_tree(ctx.document.root_node());
+    let tree = build_render_snapshot(ctx.document.root_node()).root;
 
     let result = tree.find_element_at_position(50.0, 50.0);
     assert_eq!(result.len(), 1);
@@ -123,7 +123,7 @@ fn test_find_element_at_position_nested_elements() {
         };
     }
 
-    let tree = build_render_tree(ctx.document.root_node());
+    let tree = build_render_snapshot(ctx.document.root_node()).root;
 
     // Test clicking on grandchild - should return [grandchild, child1, root]
     let result = tree.find_element_at_position(40.0, 40.0);
@@ -205,7 +205,7 @@ fn test_find_element_at_position_overlapping_siblings() {
         };
     }
 
-    let tree = build_render_tree(ctx.document.root_node());
+    let tree = build_render_snapshot(ctx.document.root_node()).root;
 
     // Test clicking in overlapping area - should hit child2 (last child, rendered on top)
     let result = tree.find_element_at_position(80.0, 80.0);
@@ -278,7 +278,7 @@ fn test_find_element_at_position_respects_overflow_hidden_clip() {
         };
     }
 
-    let tree = build_render_tree(ctx.document.root_node());
+    let tree = build_render_snapshot(ctx.document.root_node()).root;
 
     // Point is within the container's border box but outside its padding-box -> should hit container.
     let result = tree.find_element_at_position(5.0, 5.0);
