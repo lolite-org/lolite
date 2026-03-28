@@ -447,11 +447,33 @@ impl FlexLayoutEngine {
         ) {
             let container_id = container.borrow().id;
             if let Some(scroll) = ctx.scroll_state.get(&container_id) {
-                let dx = scroll.scroll_x;
-                let dy = scroll.scroll_y;
-                if dx != 0.0 || dy != 0.0 {
-                    for child in &container.borrow().children {
-                        offset_node_recursive(child, -dx, -dy);
+                let cb = container.borrow();
+                let container_bounds = cb.layout.bounds;
+
+                // Compute content bounding box from children (before scroll offset).
+                let mut content_max_x: f64 = container_bounds.x;
+                let mut content_max_y: f64 = container_bounds.y;
+                for child in &cb.children {
+                    let child_bounds = child.borrow().layout.bounds;
+                    content_max_x = content_max_x.max(child_bounds.x + child_bounds.width);
+                    content_max_y = content_max_y.max(child_bounds.y + child_bounds.height);
+                }
+
+                // Maximum scrollable distance = content overflow beyond container.
+                let max_scroll_x =
+                    (content_max_x - container_bounds.x - container_bounds.width).max(0.0);
+                let max_scroll_y =
+                    (content_max_y - container_bounds.y - container_bounds.height).max(0.0);
+
+                // Clamp and write back via Cell interior mutability.
+                let sx = scroll.scroll_x.get().clamp(0.0, max_scroll_x);
+                let sy = scroll.scroll_y.get().clamp(0.0, max_scroll_y);
+                scroll.scroll_x.set(sx);
+                scroll.scroll_y.set(sy);
+
+                if sx != 0.0 || sy != 0.0 {
+                    for child in &cb.children {
+                        offset_node_recursive(child, -sx, -sy);
                     }
                 }
             }

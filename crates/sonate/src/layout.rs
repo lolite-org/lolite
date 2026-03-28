@@ -9,12 +9,27 @@ use crate::{
 // Keep this import in the module namespace for those tests.
 #[allow(unused_imports)]
 use crate::style::Selector;
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+    sync::Arc,
+};
 
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Debug)]
 pub struct ScrollState {
-    pub scroll_x: f64,
-    pub scroll_y: f64,
+    pub scroll_x: Cell<f64>,
+    pub scroll_y: Cell<f64>,
+}
+
+impl ScrollState {
+    #[allow(unused)]
+    pub fn new(scroll_x: f64, scroll_y: f64) -> Self {
+        Self {
+            scroll_x: Cell::new(scroll_x),
+            scroll_y: Cell::new(scroll_y),
+        }
+    }
 }
 
 #[derive(Default)]

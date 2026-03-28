@@ -104,8 +104,8 @@ pub(crate) fn handle_commands(
                 }
                 Command::Scroll(id, dx, dy) => {
                     let state = ctx.scroll_state.entry(id).or_default();
-                    state.scroll_x += dx;
-                    state.scroll_y += dy;
+                    state.scroll_x.set(state.scroll_x.get() + dx);
+                    state.scroll_y.set(state.scroll_y.get() + dy);
                     if deadline.is_none() {
                         deadline = Some(Instant::now() + Duration::from_millis(16));
                     }

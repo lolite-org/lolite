@@ -42,10 +42,7 @@ fn scroll_state_cleaned_up_when_node_removed() {
     // Simulate scroll on the container
     ctx.scroll_state.insert(
         container_id,
-        ScrollState {
-            scroll_x: 0.0,
-            scroll_y: 50.0,
-        },
+        ScrollState::new(0.0, 50.0),
     );
 
     assert!(ctx.scroll_state.contains_key(&container_id));
@@ -66,24 +63,15 @@ fn scroll_state_cleaned_up_for_descendants_when_parent_removed() {
     // Add scroll state to the container and both children
     ctx.scroll_state.insert(
         container_id,
-        ScrollState {
-            scroll_x: 10.0,
-            scroll_y: 20.0,
-        },
+        ScrollState::new(10.0, 20.0),
     );
     ctx.scroll_state.insert(
         child_a,
-        ScrollState {
-            scroll_x: 0.0,
-            scroll_y: 5.0,
-        },
+        ScrollState::new(0.0, 5.0),
     );
     ctx.scroll_state.insert(
         child_b,
-        ScrollState {
-            scroll_x: 0.0,
-            scroll_y: 3.0,
-        },
+        ScrollState::new(0.0, 3.0),
     );
 
     assert_eq!(ctx.scroll_state.len(), 3);
@@ -103,17 +91,11 @@ fn removing_leaf_leaves_other_scroll_state_intact() {
 
     ctx.scroll_state.insert(
         container_id,
-        ScrollState {
-            scroll_x: 0.0,
-            scroll_y: 50.0,
-        },
+        ScrollState::new(0.0, 50.0),
     );
     ctx.scroll_state.insert(
         child_a,
-        ScrollState {
-            scroll_x: 0.0,
-            scroll_y: 10.0,
-        },
+        ScrollState::new(0.0, 10.0),
     );
 
     // Remove only child_a
@@ -143,17 +125,11 @@ fn add_nodes_scroll_then_remove_one_by_one() {
 
     ctx.scroll_state.insert(
         a,
-        ScrollState {
-            scroll_x: 0.0,
-            scroll_y: 1.0,
-        },
+        ScrollState::new(0.0, 1.0),
     );
     ctx.scroll_state.insert(
         b,
-        ScrollState {
-            scroll_x: 2.0,
-            scroll_y: 0.0,
-        },
+        ScrollState::new(2.0, 0.0),
     );
 
     assert_eq!(ctx.scroll_state.len(), 2);
@@ -185,24 +161,15 @@ fn add_deep_tree_then_remove_subtree() {
     // Give scroll state to several nodes
     ctx.scroll_state.insert(
         parent,
-        ScrollState {
-            scroll_x: 0.0,
-            scroll_y: 10.0,
-        },
+        ScrollState::new(0.0, 10.0),
     );
     ctx.scroll_state.insert(
         grandchild,
-        ScrollState {
-            scroll_x: 5.0,
-            scroll_y: 0.0,
-        },
+        ScrollState::new(5.0, 0.0),
     );
     ctx.scroll_state.insert(
         sibling,
-        ScrollState {
-            scroll_x: 1.0,
-            scroll_y: 1.0,
-        },
+        ScrollState::new(1.0, 1.0),
     );
 
     assert_eq!(ctx.scroll_state.len(), 3);
@@ -233,10 +200,7 @@ fn scroll_state_dropped_with_layout_context() {
 
     ctx.scroll_state.insert(
         node_id,
-        ScrollState {
-            scroll_x: 0.0,
-            scroll_y: 42.0,
-        },
+        ScrollState::new(0.0, 42.0),
     );
     assert_eq!(ctx.scroll_state.len(), 1);
 
@@ -251,13 +215,28 @@ fn scroll_state_dropped_with_layout_context() {
 fn scroll_offset_shifts_children() {
     let (mut ctx, container_id, child_a, child_b) = setup_scroll_ctx();
 
+    // Set flex-direction: column on the container so children stack vertically.
+    {
+        let node = ctx.document.get_node(container_id).unwrap();
+        let mut nb = node.borrow_mut();
+        let mut style = nb.layout.style.as_ref().clone();
+        style.flex_direction = Some(crate::style::FlexDirection::Column);
+        nb.layout.style = Arc::new(style);
+    }
+
+    // Make children tall enough to overflow the 100px container.
+    for &id in &[child_a, child_b] {
+        let node = ctx.document.get_node(id).unwrap();
+        let mut nb = node.borrow_mut();
+        let mut style = Style::default();
+        style.height = Some(Length::Px(80.0));
+        nb.layout.style = Arc::new(style);
+    }
+
     // Set a scroll offset
     ctx.scroll_state.insert(
         container_id,
-        ScrollState {
-            scroll_x: 0.0,
-            scroll_y: 30.0,
-        },
+        ScrollState::new(0.0, 30.0),
     );
 
     ctx.layout();
