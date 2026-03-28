@@ -36,7 +36,10 @@ impl EngineBackend for DirectBackend {
     }
 
     fn run(&self) -> i32 {
-        match self.engine.run(Params { on_click: None }) {
+        match self.engine.run(Params {
+            on_click: None,
+            on_scroll: None,
+        }) {
             Ok(()) => 0,
             Err(err) => {
                 eprintln!("sonate_run failed: {:?}", err);

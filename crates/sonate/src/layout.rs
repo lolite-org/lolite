@@ -11,6 +11,12 @@ use crate::{
 use crate::style::Selector;
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
+#[derive(Default, Clone, Copy, Debug)]
+pub struct ScrollState {
+    pub scroll_x: f64,
+    pub scroll_y: f64,
+}
+
 #[derive(Default)]
 pub struct Layout {
     pub bounds: Rect,
@@ -180,6 +186,38 @@ impl Document {
     pub fn get_node(&self, id: Id) -> Option<Rc<RefCell<Node>>> {
         self.nodes.get(&id).cloned()
     }
+
+    pub fn remove_node(&mut self, id: Id) -> Vec<Id> {
+        let node = match self.nodes.get(&id) {
+            Some(n) => n.clone(),
+            None => return Vec::new(),
+        };
+
+        // Detach from parent
+        if let Some(parent_id) = node.borrow().parent {
+            if let Some(parent) = self.nodes.get(&parent_id) {
+                parent.borrow_mut().children.retain(|c| c.borrow().id != id);
+            }
+        }
+
+        // Collect all descendant ids (including this node)
+        let mut removed = Vec::new();
+        Self::collect_ids(&node, &mut removed);
+
+        for rid in &removed {
+            self.nodes.remove(rid);
+        }
+
+        removed
+    }
+
+    fn collect_ids(node: &Rc<RefCell<Node>>, out: &mut Vec<Id>) {
+        let borrow = node.borrow();
+        out.push(borrow.id);
+        for child in &borrow.children {
+            Self::collect_ids(child, out);
+        }
+    }
 }
 
 pub struct LayoutContext {
@@ -188,6 +226,7 @@ pub struct LayoutContext {
     flex_layout_engine: FlexLayoutEngine,
     pub text_measurer: Arc<dyn TextMeasurer>,
     viewport_size: Size,
+    pub scroll_state: HashMap<Id, ScrollState>,
 }
 
 impl LayoutContext {
@@ -201,6 +240,7 @@ impl LayoutContext {
                 width: 800.0,
                 height: 500.0,
             },
+            scroll_state: HashMap::new(),
         }
     }
 
@@ -212,6 +252,14 @@ impl LayoutContext {
         self.text_measurer.begin_layout_pass();
         self.layout_node(self.document.root.clone(), 0.0, 0.0);
         self.text_measurer.end_layout_pass_and_sweep();
+    }
+
+    /// Remove a node from the document and clean up associated scroll state.
+    pub fn remove_node(&mut self, id: Id) {
+        let removed = self.document.remove_node(id);
+        for rid in &removed {
+            self.scroll_state.remove(rid);
+        }
     }
 
     pub fn layout_node(&self, node: Rc<RefCell<Node>>, x: f64, y: f64) {
@@ -336,7 +384,9 @@ impl LayoutContext {
                 node_borrow.layout.style = Arc::new(style.clone());
             }
 
-            // Layout children using the dedicated flex layout engine
+            // Layout children using the dedicated flex layout engine.
+            // Scroll offset for overflow: scroll/auto is applied inside
+            // layout_flex_children after children have been positioned.
             self.flex_layout_engine
                 .layout_flex_children(node.clone(), &style, self);
         }
@@ -441,8 +491,11 @@ impl StackingContext {
                 children: Vec::new(),
             }));
 
-            let overflow_hidden = matches!(owner.style.overflow, Some(Overflow::Hidden));
-            if overflow_hidden {
+            let clips_overflow = matches!(
+                owner.style.overflow,
+                Some(Overflow::Hidden) | Some(Overflow::Scroll) | Some(Overflow::Auto)
+            );
+            if clips_overflow {
                 let border = owner.style.border_width.resolved();
                 let left = border.left.to_px();
                 let top = border.top.to_px();
@@ -472,7 +525,7 @@ impl StackingContext {
                 }
             }
 
-            if overflow_hidden {
+            if clips_overflow {
                 out.push(RenderOp::PopClip);
             }
             return;
@@ -497,6 +550,37 @@ impl RenderNode {
         self.find_path_at_position(x, y, None).unwrap_or_default()
     }
 
+    /// Find the nearest scrollable ancestor at the given position.
+    /// Returns the Id of the first element in the hit-test chain that has
+    /// `overflow: scroll` or `overflow: auto`.
+    pub fn find_scrollable_at_position(&self, x: f64, y: f64) -> Option<Id> {
+        let path = self.find_element_at_position(x, y);
+        // path is [target, parent, grandparent, ...]
+        // Walk the path and find the first node with overflow: scroll/auto
+        for id in &path {
+            if let Some(node) = self.find_node_by_id(*id) {
+                match node.style.overflow {
+                    Some(Overflow::Scroll) | Some(Overflow::Auto) => return Some(*id),
+                    _ => {}
+                }
+            }
+        }
+        None
+    }
+
+    /// Find a RenderNode by its Id in the tree.
+    fn find_node_by_id(&self, target: Id) -> Option<&RenderNode> {
+        if self.id == target {
+            return Some(self);
+        }
+        for child in &self.children {
+            if let Some(found) = child.find_node_by_id(target) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
     fn find_path_at_position(&self, x: f64, y: f64, clip: Option<Rect>) -> Option<Vec<Id>> {
         // The inherited clip applies to this node itself (it is part of the parent's contents).
         if let Some(clip) = &clip {
@@ -511,7 +595,7 @@ impl RenderNode {
 
         // A node's overflow clip applies to its *descendants* (content), not to its own border box.
         let descendant_clip = match self.style.overflow {
-            Some(Overflow::Hidden) => {
+            Some(Overflow::Hidden) | Some(Overflow::Scroll) | Some(Overflow::Auto) => {
                 // Clip to padding-box (border-box inset by border widths).
                 let border = self.style.border_width.resolved();
                 let border_left = border.left.to_px();
@@ -638,3 +722,6 @@ mod margin_tests;
 
 #[cfg(test)]
 mod tag_selector_tests;
+
+#[cfg(test)]
+mod scroll_state_tests;

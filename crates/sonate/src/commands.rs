@@ -15,6 +15,8 @@ pub(crate) enum Command {
     SetParent(Id, Id),
     SetAttribute(Id, String, String),
     SetViewportSize(f64, f64),
+    RemoveNode(Id),
+    Scroll(Id, f64, f64),
     #[allow(unused)]
     Layout,
 }
@@ -92,6 +94,20 @@ pub(crate) fn handle_commands(
                             Some(existing) => existing.min(new_deadline),
                             None => new_deadline,
                         });
+                    }
+                }
+                Command::RemoveNode(id) => {
+                    ctx.remove_node(id);
+                    if deadline.is_none() {
+                        deadline = Some(Instant::now() + Duration::from_millis(100));
+                    }
+                }
+                Command::Scroll(id, dx, dy) => {
+                    let state = ctx.scroll_state.entry(id).or_default();
+                    state.scroll_x += dx;
+                    state.scroll_y += dy;
+                    if deadline.is_none() {
+                        deadline = Some(Instant::now() + Duration::from_millis(16));
                     }
                 }
                 Command::Layout => {

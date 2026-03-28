@@ -435,6 +435,7 @@ fn main() {
                 apply_state(&engine, &mut state, flex_container, item1, item2, item3);
             }))
         },
+        on_scroll: None,
     };
 
     if let Err(e) = engine.run(params) {

@@ -50,6 +50,7 @@ pub struct Engine {
 #[derive(Default)]
 pub struct Params {
     pub on_click: Option<Box<dyn Fn(f64, f64, Vec<Id>)>>,
+    pub on_scroll: Option<Box<dyn Fn(Id, f64, f64)>>,
 }
 
 #[derive(Debug)]
@@ -88,6 +89,7 @@ impl Engine {
 
         let this1 = self.clone();
         let this2 = self.clone();
+        let this3 = self.clone();
         let resize_sender = self.sender.clone();
 
         let mut params = windowing::Params {
@@ -108,6 +110,13 @@ impl Engine {
             }),
             on_resize: Box::new(move |width, height| {
                 let _ = resize_sender.send(Command::SetViewportSize(width, height));
+            }),
+            on_scroll: Box::new(move |x, y, dx, dy| {
+                if let Some(snapshot) = this3.get_current_snapshot() {
+                    if let Some(scrollable_id) = snapshot.root.find_scrollable_at_position(x, y) {
+                        this3.scroll(scrollable_id, -dx, -dy);
+                    }
+                }
             }),
         };
 
@@ -144,6 +153,20 @@ impl Engine {
     pub fn set_attribute(&self, node_id: Id, key: String, value: String) {
         self.sender
             .send(Command::SetAttribute(node_id, key, value))
+            .expect("data thread down");
+    }
+
+    /// Remove a node and all its descendants from the document
+    pub fn remove_node(&self, node_id: Id) {
+        self.sender
+            .send(Command::RemoveNode(node_id))
+            .expect("data thread down");
+    }
+
+    /// Scroll a node by the given delta
+    pub fn scroll(&self, node_id: Id, dx: f64, dy: f64) {
+        self.sender
+            .send(Command::Scroll(node_id, dx, dy))
             .expect("data thread down");
     }
 

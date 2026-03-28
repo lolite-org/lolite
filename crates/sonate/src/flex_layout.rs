@@ -1,7 +1,7 @@
 use crate::layout::{LayoutContext, Node};
 use crate::style::{
     AlignContent, AlignItems, AlignSelf, BoxSizing, Directional, FlexDirection, FlexWrap,
-    JustifyContent, Length, Style,
+    JustifyContent, Length, Overflow, Style,
 };
 use crate::text::FontSpec;
 use std::cell::RefCell;
@@ -439,6 +439,34 @@ impl FlexLayoutEngine {
 
             line_cross_offset += line.cross_size + line_between_gap;
         }
+
+        // Apply scroll offset for overflow: scroll / auto containers.
+        if matches!(
+            container_style.overflow,
+            Some(Overflow::Scroll) | Some(Overflow::Auto)
+        ) {
+            let container_id = container.borrow().id;
+            if let Some(scroll) = ctx.scroll_state.get(&container_id) {
+                let dx = scroll.scroll_x;
+                let dy = scroll.scroll_y;
+                if dx != 0.0 || dy != 0.0 {
+                    for child in &container.borrow().children {
+                        offset_node_recursive(child, -dx, -dy);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn offset_node_recursive(node: &Rc<RefCell<Node>>, dx: f64, dy: f64) {
+    {
+        let mut nb = node.borrow_mut();
+        nb.layout.bounds.x += dx;
+        nb.layout.bounds.y += dy;
+    }
+    for child in &node.borrow().children {
+        offset_node_recursive(child, dx, dy);
     }
 }
 
