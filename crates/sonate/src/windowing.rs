@@ -76,7 +76,7 @@ fn run_with_backend_impl<'a, B: RenderingBackend>(
 ) -> anyhow::Result<()> {
     use winit::{
         application::ApplicationHandler,
-        event::{ElementState, MouseButton, WindowEvent},
+        event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
         event_loop::{ActiveEventLoop, EventLoop},
         keyboard::{Key, NamedKey},
         window::WindowId,
@@ -171,6 +171,19 @@ fn run_with_backend_impl<'a, B: RenderingBackend>(
                     let input_state = backend.input_state();
                     if let Some(cursor_position) = &input_state.cursor_position {
                         (self.params.on_click)(cursor_position.x, cursor_position.y);
+                    }
+                }
+                WindowEvent::MouseWheel { delta, .. } => {
+                    let (dx, dy) = match delta {
+                        MouseScrollDelta::LineDelta(x, y) => (x as f64 * 40.0, y as f64 * 40.0),
+                        MouseScrollDelta::PixelDelta(pos) => {
+                            let logical = pos.to_logical::<f64>(self.scale_factor);
+                            (logical.x, logical.y)
+                        }
+                    };
+                    let input_state = backend.input_state();
+                    if let Some(cursor_position) = &input_state.cursor_position {
+                        (self.params.on_scroll)(cursor_position.x, cursor_position.y, dx, dy);
                     }
                 }
                 WindowEvent::CursorMoved { position, .. } => {

@@ -53,6 +53,7 @@ fn main() {
         on_click: Some(Box::new(|x, y, elements| {
             println!("Clicked at ({}, {}), elements: {:?}", x, y, elements);
         })),
+        on_scroll: None,
     };
 
     if let Err(e) = engine.run(params) {

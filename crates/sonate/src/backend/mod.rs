@@ -14,6 +14,7 @@ pub struct Params {
     pub on_draw: Box<dyn FnMut(&Canvas)>,
     pub on_click: Box<dyn FnMut(f64, f64)>, // x, y coordinates in logical pixels (points)
     pub on_resize: Box<dyn FnMut(f64, f64)>, // width, height in logical pixels (points)
+    pub on_scroll: Box<dyn FnMut(f64, f64, f64, f64)>, // x, y cursor position + dx, dy scroll delta in logical pixels
 }
 
 /// State shared across all backends for input handling
