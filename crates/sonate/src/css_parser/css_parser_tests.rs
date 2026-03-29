@@ -1,5 +1,5 @@
 use crate::css_parser::parse_css;
-use crate::style::{Display, Selector};
+use crate::style::{Display, Selector, Widget};
 
 #[test]
 fn test_parse_simple_css_document() {
@@ -188,4 +188,38 @@ fn test_single_rule_css() {
         stylesheet.rules[0].selector,
         Selector::Class("single".to_string())
     );
+}
+
+#[test]
+fn test_parse_text_input_widget_property() {
+    let css = r#"
+        input {
+            -sonate-widget: text-input;
+        }
+    "#;
+
+    let stylesheet = parse_css(css).expect("Failed to parse text input widget CSS");
+    assert_eq!(stylesheet.rules.len(), 1);
+
+    let declarations = &stylesheet.rules[0].declarations;
+    assert!(declarations
+        .iter()
+        .any(|declaration| declaration.widget == Some(Widget::TextInput)));
+}
+
+#[test]
+fn test_parse_none_widget_property() {
+    let css = r#"
+        input {
+            -sonate-widget: none;
+        }
+    "#;
+
+    let stylesheet = parse_css(css).expect("Failed to parse none widget CSS");
+    assert_eq!(stylesheet.rules.len(), 1);
+
+    let declarations = &stylesheet.rules[0].declarations;
+    assert!(declarations
+        .iter()
+        .any(|declaration| declaration.widget == Some(Widget::None)));
 }

@@ -546,8 +546,13 @@ fn base_sizes_for_item(
     let mut width = width_opt.unwrap_or(100.0);
     let mut height = height_opt.unwrap_or(30.0);
 
+    if style.widget.is_some_and(|widget| widget.is_text_input()) {
+        crate::layout::LayoutContext::prepare_text_input_node(&mut node.borrow_mut());
+    }
+
     // If this looks like a text node and doesn't have explicit sizes, prefer intrinsic text sizing.
-    let is_text_node = node.borrow().is_text_node();
+    let is_text_node = node.borrow().is_text_node()
+        || style.widget.is_some_and(|widget| widget.is_text_input());
 
     if is_text_node {
         if let Some(text) = node.borrow().text.as_deref() {

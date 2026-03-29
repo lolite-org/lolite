@@ -14,6 +14,11 @@ pub(crate) enum Command {
     CreateNode(Id, Option<String>),
     SetParent(Id, Id),
     SetAttribute(Id, String, String),
+    InputSetFocusedTextInput(Option<Id>),
+    InputInsertText(String),
+    InputDeleteBackward,
+    InputMoveCaretLeft,
+    InputMoveCaretRight,
     SetViewportSize(f64, f64),
     RemoveNode(Id),
     Scroll(Id, f64, f64),
@@ -82,6 +87,51 @@ pub(crate) fn handle_commands(
                     ctx.document.set_attribute(id, k, v);
                     if deadline.is_none() {
                         deadline = Some(Instant::now() + Duration::from_millis(100));
+                    }
+                }
+                Command::InputSetFocusedTextInput(id) => {
+                    if ctx.set_focused_text_input(id) {
+                        let new_deadline = Instant::now() + Duration::from_millis(16);
+                        deadline = Some(match deadline {
+                            Some(existing) => existing.min(new_deadline),
+                            None => new_deadline,
+                        });
+                    }
+                }
+                Command::InputInsertText(text) => {
+                    if ctx.insert_text_at_focus(&text) {
+                        let new_deadline = Instant::now() + Duration::from_millis(16);
+                        deadline = Some(match deadline {
+                            Some(existing) => existing.min(new_deadline),
+                            None => new_deadline,
+                        });
+                    }
+                }
+                Command::InputDeleteBackward => {
+                    if ctx.delete_backward_at_focus() {
+                        let new_deadline = Instant::now() + Duration::from_millis(16);
+                        deadline = Some(match deadline {
+                            Some(existing) => existing.min(new_deadline),
+                            None => new_deadline,
+                        });
+                    }
+                }
+                Command::InputMoveCaretLeft => {
+                    if ctx.move_caret_left() {
+                        let new_deadline = Instant::now() + Duration::from_millis(16);
+                        deadline = Some(match deadline {
+                            Some(existing) => existing.min(new_deadline),
+                            None => new_deadline,
+                        });
+                    }
+                }
+                Command::InputMoveCaretRight => {
+                    if ctx.move_caret_right() {
+                        let new_deadline = Instant::now() + Duration::from_millis(16);
+                        deadline = Some(match deadline {
+                            Some(existing) => existing.min(new_deadline),
+                            None => new_deadline,
+                        });
                     }
                 }
                 Command::SetViewportSize(width, height) => {

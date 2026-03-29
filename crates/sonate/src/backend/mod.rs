@@ -10,15 +10,25 @@ pub mod gl;
 pub mod metal;
 
 /// Common parameters shared across all rendering backends
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputKey {
+    ArrowLeft,
+    ArrowRight,
+    Backspace,
+}
+
 pub struct Params {
     pub on_draw: Box<dyn FnMut(&Canvas)>,
     pub on_click: Box<dyn FnMut(f64, f64)>, // x, y coordinates in logical pixels (points)
     pub on_resize: Box<dyn FnMut(f64, f64)>, // width, height in logical pixels (points)
     pub on_scroll: Box<dyn FnMut(f64, f64, f64, f64)>, // x, y cursor position + dx, dy scroll delta in logical pixels
+    pub on_text_input: Box<dyn FnMut(String)>,
+    pub on_key: Box<dyn FnMut(InputKey)>,
 }
 
 /// State shared across all backends for input handling
 pub struct InputState {
+    #[allow(unused)]
     pub x: f32,
     pub y: f32,
     pub cursor_position: Option<winit::dpi::LogicalPosition<f64>>,

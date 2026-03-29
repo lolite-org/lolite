@@ -1,4 +1,4 @@
-use crate::backend::{BackendType, RenderingBackend};
+use crate::backend::{BackendType, InputKey, RenderingBackend};
 use std::sync::{Arc, Mutex};
 use winit::event_loop::EventLoopProxy;
 
@@ -152,16 +152,33 @@ fn run_with_backend_impl<'a, B: RenderingBackend>(
             // Handle common events
             match event {
                 WindowEvent::KeyboardInput { event, .. } => {
-                    let input_state = backend.input_state_mut();
-                    match event.logical_key {
-                        Key::Named(NamedKey::ArrowLeft) => input_state.x -= 10.0,
-                        Key::Named(NamedKey::ArrowRight) => input_state.x += 10.0,
-                        Key::Named(NamedKey::ArrowUp) => input_state.y += 10.0,
-                        Key::Named(NamedKey::ArrowDown) => input_state.y -= 10.0,
-                        Key::Named(NamedKey::Escape) => event_loop.exit(),
-                        _ => return,
+                    if event.state != ElementState::Pressed {
+                        return;
                     }
-                    backend.request_redraw();
+
+                    if let Some(text) = event.text.as_ref() {
+                        let committed: String =
+                            text.chars().filter(|ch| !ch.is_control()).collect();
+                        if !committed.is_empty() {
+                            (self.params.on_text_input)(committed);
+                        }
+                    }
+
+                    match &event.logical_key {
+                        Key::Named(NamedKey::ArrowLeft) => {
+                            (self.params.on_key)(InputKey::ArrowLeft);
+                        }
+                        Key::Named(NamedKey::ArrowRight) => {
+                            (self.params.on_key)(InputKey::ArrowRight);
+                        }
+                        Key::Named(NamedKey::Backspace) => {
+                            (self.params.on_key)(InputKey::Backspace);
+                        }
+                        Key::Named(NamedKey::ArrowUp) => backend.input_state_mut().y += 10.0,
+                        Key::Named(NamedKey::ArrowDown) => backend.input_state_mut().y -= 10.0,
+                        Key::Named(NamedKey::Escape) => event_loop.exit(),
+                        _ => {}
+                    }
                 }
                 WindowEvent::MouseInput {
                     state: ElementState::Pressed,

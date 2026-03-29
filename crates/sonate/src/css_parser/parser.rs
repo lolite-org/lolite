@@ -1,6 +1,6 @@
 use crate::style::{
     AlignContent, AlignItems, AlignSelf, BoxSizing, Directional, Display, FlexDirection, FlexWrap,
-    JustifyContent, Overflow, Rule, Selector, Style, StyleSheet, ZIndex,
+    JustifyContent, Overflow, Rule, Selector, Style, StyleSheet, Widget, ZIndex,
 };
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput, ParserState,
@@ -117,6 +117,14 @@ impl<'i> DeclarationParser<'i> for StyleDeclarationParser {
         let mut style = Style::default();
 
         match name.as_ref() {
+            "-sonate-widget" => {
+                let ident = input.expect_ident()?;
+                style.widget = Some(match ident.as_ref() {
+                    "text-input" => Widget::TextInput,
+                    "none" => Widget::None,
+                    _ => return Err(input.new_error_for_next_token()),
+                });
+            }
             "display" => {
                 let ident = input.expect_ident()?;
                 match ident.as_ref() {
