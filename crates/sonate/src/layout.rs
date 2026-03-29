@@ -38,6 +38,12 @@ pub struct Layout {
     pub style: Arc<Style>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct TextInputState {
+    pub focused: bool,
+    pub caret: usize,
+}
+
 #[derive(Default, Debug, Clone, Copy)]
 pub struct Size {
     pub width: f64,
@@ -94,6 +100,7 @@ impl Rect {
 pub struct Node {
     pub id: Id,
     pub text: Option<String>,
+    pub text_input_state: Option<TextInputState>,
     pub attributes: HashMap<String, String>,
     pub children: Vec<Rc<RefCell<Node>>>,
     pub parent: Option<Id>, // Add parent member
@@ -241,6 +248,7 @@ pub struct LayoutContext {
     flex_layout_engine: FlexLayoutEngine,
     pub text_measurer: Arc<dyn TextMeasurer>,
     viewport_size: Size,
+    focused_text_input: Option<Id>,
     pub scroll_state: HashMap<Id, ScrollState>,
 }
 
@@ -255,6 +263,7 @@ impl LayoutContext {
                 width: 800.0,
                 height: 500.0,
             },
+            focused_text_input: None,
             scroll_state: HashMap::new(),
         }
     }
@@ -272,9 +281,161 @@ impl LayoutContext {
     /// Remove a node from the document and clean up associated scroll state.
     pub fn remove_node(&mut self, id: Id) {
         let removed = self.document.remove_node(id);
+        if self
+            .focused_text_input
+            .is_some_and(|focused| removed.contains(&focused))
+        {
+            self.focused_text_input = None;
+        }
         for rid in &removed {
             self.scroll_state.remove(rid);
         }
+    }
+
+    pub fn set_focused_text_input(&mut self, id: Option<Id>) -> bool {
+        if self.focused_text_input == id {
+            return false;
+        }
+
+        if let Some(previous) = self.focused_text_input.take() {
+            if let Some(node) = self.document.get_node(previous) {
+                if let Some(state) = node.borrow_mut().text_input_state.as_mut() {
+                    state.focused = false;
+                }
+            }
+        }
+
+        if let Some(target) = id {
+            let Some(node) = self.document.get_node(target) else {
+                return true;
+            };
+
+            let mut node = node.borrow_mut();
+            Self::prepare_text_input_node(&mut node);
+            let text_len = node.text.as_deref().map(char_len).unwrap_or(0);
+            if let Some(state) = node.text_input_state.as_mut() {
+                state.focused = true;
+                state.caret = text_len;
+            }
+            self.focused_text_input = Some(target);
+        }
+
+        true
+    }
+
+    pub fn insert_text_at_focus(&mut self, text: &str) -> bool {
+        let Some(node) = self
+            .focused_text_input
+            .and_then(|id| self.document.get_node(id))
+        else {
+            return false;
+        };
+
+        let mut node = node.borrow_mut();
+        Self::prepare_text_input_node(&mut node);
+        let caret = node
+            .text_input_state
+            .as_ref()
+            .expect("text input state must exist")
+            .caret
+            .min(node.text.as_deref().map(char_len).unwrap_or(0));
+        {
+            let current = node.text.get_or_insert_with(String::new);
+            let byte_index = byte_index_for_char(current, caret);
+            current.insert_str(byte_index, text);
+        }
+        let updated_text = node.text.clone().unwrap_or_default();
+        node.text_input_state
+            .as_mut()
+            .expect("text input state must exist")
+            .caret = caret + char_len(text);
+        node.attributes.insert("value".to_string(), updated_text);
+        true
+    }
+
+    pub fn delete_backward_at_focus(&mut self) -> bool {
+        let Some(node) = self
+            .focused_text_input
+            .and_then(|id| self.document.get_node(id))
+        else {
+            return false;
+        };
+
+        let mut node = node.borrow_mut();
+        Self::prepare_text_input_node(&mut node);
+        let caret = node
+            .text_input_state
+            .as_ref()
+            .expect("text input state must exist")
+            .caret
+            .min(node.text.as_deref().map(char_len).unwrap_or(0));
+        if caret == 0 {
+            return false;
+        }
+
+        {
+            let current = node.text.get_or_insert_with(String::new);
+            let start = byte_index_for_char(current, caret - 1);
+            let end = byte_index_for_char(current, caret);
+            current.replace_range(start..end, "");
+        }
+        let updated_text = node.text.clone().unwrap_or_default();
+        node.text_input_state
+            .as_mut()
+            .expect("text input state must exist")
+            .caret = caret - 1;
+        node.attributes.insert("value".to_string(), updated_text);
+        true
+    }
+
+    pub fn move_caret_left(&mut self) -> bool {
+        self.move_caret(-1)
+    }
+
+    pub fn move_caret_right(&mut self) -> bool {
+        self.move_caret(1)
+    }
+
+    fn move_caret(&mut self, delta: isize) -> bool {
+        let Some(node) = self
+            .focused_text_input
+            .and_then(|id| self.document.get_node(id))
+        else {
+            return false;
+        };
+
+        let mut node = node.borrow_mut();
+        Self::prepare_text_input_node(&mut node);
+        let text_len = node.text.as_deref().map(char_len).unwrap_or(0);
+        let state = node
+            .text_input_state
+            .as_mut()
+            .expect("text input state must exist");
+        let next = if delta.is_negative() {
+            state.caret.saturating_sub(delta.unsigned_abs())
+        } else {
+            state.caret.saturating_add(delta as usize).min(text_len)
+        };
+        if next == state.caret {
+            return false;
+        }
+        state.caret = next;
+        true
+    }
+
+    pub(crate) fn prepare_text_input_node(node: &mut Node) {
+        let initial_text = node
+            .text
+            .clone()
+            .or_else(|| node.attributes.get("value").cloned())
+            .unwrap_or_default();
+        node.text = Some(initial_text.clone());
+
+        let caret = char_len(&initial_text);
+        node.text_input_state.get_or_insert_with(|| TextInputState {
+            focused: false,
+            caret,
+        });
     }
 
     pub fn layout_node(&self, node: Rc<RefCell<Node>>, x: f64, y: f64) {
@@ -299,8 +460,13 @@ impl LayoutContext {
             node_borrow.layout.bounds.y = y;
         }
 
+        let is_text_input = style.widget.is_some_and(|widget| widget.is_text_input());
+        if is_text_input {
+            Self::prepare_text_input_node(&mut node.borrow_mut());
+        }
+
         let is_leaf = node.borrow().children.is_empty();
-        let is_text_node = node.borrow().is_text_node();
+        let is_text_node = node.borrow().is_text_node() || is_text_input;
 
         // Sonate stores `layout.bounds` as the element's border-box.
         // `box-sizing` determines whether CSS `width/height` refer to the content-box or border-box.
@@ -415,6 +581,7 @@ pub struct RenderNode {
     pub bounds: Rect,
     pub style: Arc<Style>,
     pub text: Option<String>,
+    pub text_input_state: Option<TextInputState>,
     pub children: Vec<RenderNode>,
 }
 
@@ -503,6 +670,7 @@ impl StackingContext {
                 bounds: owner.bounds,
                 style: owner.style.clone(),
                 text: owner.text.clone(),
+                text_input_state: owner.text_input_state.clone(),
                 children: Vec::new(),
             }));
 
@@ -531,6 +699,7 @@ impl StackingContext {
                 bounds: owner.bounds,
                 style: owner.style.clone(),
                 text: owner.text.clone(),
+                text_input_state: owner.text_input_state.clone(),
                 children: Vec::new(),
             }));
 
@@ -584,7 +753,7 @@ impl RenderNode {
     }
 
     /// Find a RenderNode by its Id in the tree.
-    fn find_node_by_id(&self, target: Id) -> Option<&RenderNode> {
+    pub fn find_node_by_id(&self, target: Id) -> Option<&RenderNode> {
         if self.id == target {
             return Some(self);
         }
@@ -662,13 +831,14 @@ pub fn build_render_tree_with_stacking(node: Rc<RefCell<Node>>) -> (RenderNode, 
 }
 
 fn build_render_tree_with_ctx(node: Rc<RefCell<Node>>, ctx: &mut StackingContext) -> RenderNode {
-    let (id, bounds, style, text, children_nodes) = {
+    let (id, bounds, style, text, text_input_state, children_nodes) = {
         let nb = node.borrow();
         (
             nb.id,
             nb.layout.bounds,
             nb.layout.style.clone(),
             nb.text.clone(),
+            nb.text_input_state.clone(),
             nb.children.clone(),
         )
     };
@@ -681,6 +851,7 @@ fn build_render_tree_with_ctx(node: Rc<RefCell<Node>>, ctx: &mut StackingContext
             bounds,
             style: style.clone(),
             text: text.clone(),
+            text_input_state: text_input_state.clone(),
             children: Vec::new(),
         }),
         entries: Vec::new(),
@@ -698,8 +869,20 @@ fn build_render_tree_with_ctx(node: Rc<RefCell<Node>>, ctx: &mut StackingContext
         bounds,
         style,
         text,
+        text_input_state,
         children: render_children,
     }
+}
+
+fn char_len(text: &str) -> usize {
+    text.chars().count()
+}
+
+fn byte_index_for_char(text: &str, char_index: usize) -> usize {
+    text.char_indices()
+        .nth(char_index)
+        .map(|(idx, _)| idx)
+        .unwrap_or(text.len())
 }
 
 #[cfg(test)]
@@ -740,3 +923,6 @@ mod tag_selector_tests;
 
 #[cfg(test)]
 mod scroll_state_tests;
+
+#[cfg(test)]
+mod text_input_tests;

@@ -245,6 +245,18 @@ pub enum Overflow {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Widget {
+    None,
+    TextInput,
+}
+
+impl Widget {
+    pub fn is_text_input(&self) -> bool {
+        matches!(self, Widget::TextInput)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ZIndex {
     Auto,
     Index(i32),
@@ -253,6 +265,7 @@ pub enum ZIndex {
 #[derive(Clone, Default, MergeProperties)]
 pub struct Style {
     pub display: Display,
+    pub widget: Option<Widget>,
     pub color: Option<Rgba>,
     pub background_color: Option<Rgba>,
     #[merge_by_method_call]

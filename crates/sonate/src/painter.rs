@@ -3,7 +3,7 @@ use crate::{
     style::{BorderStyle, Length, Rgba},
     text::{FontSpec, SkiaTextMeasurer},
 };
-use skia_safe::{Canvas, ClipOp, Color, Color4f, Paint, RRect, Rect};
+use skia_safe::{Canvas, ClipOp, Color, Color4f, Paint, Path, RRect, Rect};
 
 pub struct Painter<'a> {
     canvas: &'a Canvas,
@@ -138,6 +138,14 @@ impl<'a> Painter<'a> {
     fn paint_text(&mut self, node: &crate::layout::RenderNode) {
         let style = &node.style;
 
+        let font_spec = FontSpec::from_style(style);
+        let font = SkiaTextMeasurer::make_font(&font_spec);
+        let (_scale, metrics) = font.metrics();
+
+        let padding = style.padding.resolved();
+        let x = (node.bounds.x + padding.left.to_px()) as f32;
+        let baseline_y = (node.bounds.y + padding.top.to_px() + (-metrics.ascent as f64)) as f32;
+
         if let Some(text) = &node.text {
             let text_color = style.color.unwrap_or(Rgba {
                 r: 0,
@@ -149,16 +157,42 @@ impl<'a> Painter<'a> {
             let mut paint = Paint::new(text_color.to_color4f(), None);
             paint.set_anti_alias(true);
 
-            let padding = style.padding.resolved();
-            let x = (node.bounds.x + padding.left.to_px()) as f32;
-
-            let font_spec = FontSpec::from_style(style);
-            let font = SkiaTextMeasurer::make_font(&font_spec);
-            let (_scale, metrics) = font.metrics();
-            let baseline_y =
-                (node.bounds.y + padding.top.to_px() + (-metrics.ascent as f64)) as f32;
-
             self.canvas.draw_str(text, (x, baseline_y), &font, &paint);
+        }
+
+        if style.widget.is_some_and(|widget| widget.is_text_input()) {
+            if let Some(state) = &node.text_input_state {
+                if state.focused {
+                    let text = node.text.as_deref().unwrap_or("");
+                    let caret_prefix: String = text.chars().take(state.caret).collect();
+                    let (caret_advance, _) = font.measure_str(caret_prefix.as_str(), None);
+
+                    let caret_x = x + caret_advance;
+                    let caret_top = (baseline_y as f64 + metrics.ascent as f64) as f32;
+                    let caret_bottom = (baseline_y as f64 + metrics.descent as f64) as f32;
+
+                    let mut caret_path = Path::new();
+                    caret_path.move_to((caret_x, caret_top));
+                    caret_path.line_to((caret_x, caret_bottom));
+
+                    let mut caret_paint = Paint::new(
+                        style
+                            .color
+                            .unwrap_or(Rgba {
+                                r: 0,
+                                g: 0,
+                                b: 0,
+                                a: 255,
+                            })
+                            .to_color4f(),
+                        None,
+                    );
+                    caret_paint.set_style(skia_safe::paint::Style::Stroke);
+                    caret_paint.set_stroke_width(1.0);
+                    caret_paint.set_anti_alias(true);
+                    self.canvas.draw_path(&caret_path, &caret_paint);
+                }
+            }
         }
     }
 }

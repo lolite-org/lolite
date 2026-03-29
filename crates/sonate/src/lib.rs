@@ -9,6 +9,7 @@ mod style_matching;
 mod text;
 mod windowing;
 
+use crate::backend::InputKey;
 use commands::Command;
 use layout::RenderSnapshot;
 use painter::Painter;
@@ -90,6 +91,9 @@ impl Engine {
         let this1 = self.clone();
         let this2 = self.clone();
         let this3 = self.clone();
+        let focus_sender = self.sender.clone();
+        let input_sender = self.sender.clone();
+        let key_sender = self.sender.clone();
         let resize_sender = self.sender.clone();
 
         let mut params = windowing::Params {
@@ -102,6 +106,13 @@ impl Engine {
             on_click: Box::new(move |x, y| {
                 if let Some(snapshot) = this2.get_current_snapshot() {
                     let elements = snapshot.root.find_element_at_position(x, y);
+
+                    let focused_text_input = elements.iter().find_map(|id| {
+                        snapshot.root.find_node_by_id(*id).and_then(|node| {
+                            node.style.widget.is_some_and(|widget| widget.is_text_input()).then_some(*id)
+                        })
+                    });
+                    let _ = focus_sender.send(Command::InputSetFocusedTextInput(focused_text_input));
 
                     if let Some(ref on_click) = params.on_click {
                         on_click(x, y, elements);
@@ -117,6 +128,17 @@ impl Engine {
                         this3.scroll(scrollable_id, -dx, -dy);
                     }
                 }
+            }),
+            on_text_input: Box::new(move |text| {
+                let _ = input_sender.send(Command::InputInsertText(text));
+            }),
+            on_key: Box::new(move |key| {
+                let command = match key {
+                    InputKey::ArrowLeft => Command::InputMoveCaretLeft,
+                    InputKey::ArrowRight => Command::InputMoveCaretRight,
+                    InputKey::Backspace => Command::InputDeleteBackward,
+                };
+                let _ = key_sender.send(command);
             }),
         };
 
