@@ -48,3 +48,7 @@ path = "src/bin/sonate_html.rs"
 [[example]]
 name = "showcase_flex"
 path = "../../examples/showcase_flex/showcase_flex.rs"
+
+[[example]]
+name = "showcase_input"
+path = "../../examples/showcase_input/showcase_input.rs"
