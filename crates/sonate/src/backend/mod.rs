@@ -24,6 +24,7 @@ pub struct Params {
     pub on_scroll: Box<dyn FnMut(f64, f64, f64, f64)>, // x, y cursor position + dx, dy scroll delta in logical pixels
     pub on_text_input: Box<dyn FnMut(String)>,
     pub on_key: Box<dyn FnMut(InputKey)>,
+    pub on_debug_dump: Box<dyn FnMut()>,
 }
 
 /// State shared across all backends for input handling

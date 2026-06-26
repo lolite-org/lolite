@@ -86,11 +86,19 @@ fn run_with_backend_impl<'a, B: RenderingBackend>(
     let event_loop: EventLoop<WindowMessage> = event_loop_builder.build()?;
     // Publish a proxy so non-UI threads (layout/commands) can request redraws.
     message_sender.set_proxy(event_loop.create_proxy());
+    let debugging_enabled = std::env::var("LOLITE_DEBUG")
+        .ok()
+        .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+
+    if debugging_enabled {
+        println!("Debugging enabled. Press F9 to trigger a debug dump.");
+    }
 
     struct Application<'a, B: RenderingBackend> {
         backend: Option<B>,
         params: &'a mut crate::backend::Params,
         scale_factor: f64,
+        debug_dump_enabled: bool,
     }
 
     impl<'a, B: RenderingBackend> ApplicationHandler<WindowMessage> for Application<'a, B> {
@@ -176,6 +184,11 @@ fn run_with_backend_impl<'a, B: RenderingBackend>(
                         }
                         Key::Named(NamedKey::ArrowUp) => backend.input_state_mut().y += 10.0,
                         Key::Named(NamedKey::ArrowDown) => backend.input_state_mut().y -= 10.0,
+                        Key::Named(NamedKey::F9) => {
+                            if self.debug_dump_enabled {
+                                (self.params.on_debug_dump)();
+                            }
+                        }
                         Key::Named(NamedKey::Escape) => event_loop.exit(),
                         _ => {}
                     }
@@ -220,6 +233,7 @@ fn run_with_backend_impl<'a, B: RenderingBackend>(
         backend: None,
         params,
         scale_factor: 1.0,
+        debug_dump_enabled: debugging_enabled,
     };
 
     event_loop.run_app(&mut application)?;

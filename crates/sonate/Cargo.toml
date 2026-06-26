@@ -11,6 +11,7 @@ sonate_macros = { path = "../sonate_macros" }
 cssparser = "0.35.0"
 parking_lot = "0.12"
 html_parser = "0.7.0"
+chrono = "0.4.42"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 skia-safe = { version = "0.87.0", features = ["d3d"] }

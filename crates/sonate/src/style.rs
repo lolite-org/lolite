@@ -111,7 +111,7 @@ pub struct Radius {
     pub y: Length,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct BorderRadius {
     pub top_left: Option<Radius>,
     pub top_right: Option<Radius>,
@@ -157,7 +157,7 @@ pub enum BorderStyle {
     Outset,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub enum Display {
     // Block,
     // Inline,
@@ -167,7 +167,7 @@ pub enum Display {
     // Grid,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub enum FlexDirection {
     #[default]
     Row,
@@ -176,7 +176,7 @@ pub enum FlexDirection {
     ColumnReverse,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub enum FlexWrap {
     #[default]
     NoWrap,
@@ -184,7 +184,7 @@ pub enum FlexWrap {
     WrapReverse,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub enum JustifyContent {
     #[default]
     FlexStart,
@@ -195,7 +195,7 @@ pub enum JustifyContent {
     SpaceEvenly,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub enum AlignItems {
     #[default]
     Stretch,
@@ -205,7 +205,7 @@ pub enum AlignItems {
     Baseline,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub enum AlignContent {
     #[default]
     Stretch,
@@ -217,7 +217,7 @@ pub enum AlignContent {
     SpaceEvenly,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub enum AlignSelf {
     #[default]
     Auto,
@@ -262,7 +262,7 @@ pub enum ZIndex {
     Index(i32),
 }
 
-#[derive(Clone, Default, MergeProperties)]
+#[derive(Clone, Default, Debug, MergeProperties)]
 pub struct Style {
     pub display: Display,
     pub widget: Option<Widget>,
@@ -311,6 +311,14 @@ pub struct StyleSheet {
     pub rules: Vec<Rule>,
 }
 
+impl std::fmt::Debug for StyleSheet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StyleSheet")
+            .field("rules", &self.rules)
+            .finish()
+    }
+}
+
 impl StyleSheet {
     pub fn new() -> Self {
         Self { rules: vec![] }
@@ -324,6 +332,15 @@ impl StyleSheet {
 pub struct Rule {
     pub selector: Selector,
     pub declarations: Vec<Style>,
+}
+
+impl std::fmt::Debug for Rule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Rule")
+            .field("selector", &self.selector)
+            .field("declarations", &self.declarations)
+            .finish()
+    }
 }
 
 #[derive(Debug, PartialEq)]

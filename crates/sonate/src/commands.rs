@@ -1,6 +1,8 @@
 use crate::css_parser::parse_css;
-use crate::layout::{build_render_snapshot, LayoutContext, RenderSnapshot};
+use crate::layout::{build_render_snapshot, LayoutContext, RenderOp, RenderSnapshot};
 use crate::Id;
+use chrono::Local;
+use std::fs;
 use std::sync::{
     mpsc::{self, Receiver},
     Arc, RwLock,
@@ -22,8 +24,123 @@ pub(crate) enum Command {
     SetViewportSize(f64, f64),
     RemoveNode(Id),
     Scroll(Id, f64, f64),
+    DumpDebugState,
     #[allow(unused)]
     Layout,
+}
+
+fn write_document_tree(
+    node: &std::rc::Rc<std::cell::RefCell<crate::layout::Node>>,
+    indent: usize,
+    out: &mut String,
+) {
+    let node_borrow = node.borrow();
+    let prefix = "  ".repeat(indent);
+    out.push_str(&format!(
+        "{prefix}- id={} text={:?} attrs={:?} bounds={:?} style={:#?}\n",
+        node_borrow.id.value(),
+        node_borrow.text,
+        node_borrow.attributes,
+        node_borrow.layout.bounds,
+        node_borrow.layout.style,
+    ));
+
+    for child in &node_borrow.children {
+        write_document_tree(child, indent + 1, out);
+    }
+}
+
+fn write_render_tree(node: &crate::layout::RenderNode, indent: usize, out: &mut String) {
+    let prefix = "  ".repeat(indent);
+    out.push_str(&format!(
+        "{prefix}- id={} text={:?} bounds={:?} style={:#?}\n",
+        node.id.value(),
+        node.text,
+        node.bounds,
+        node.style,
+    ));
+
+    for child in &node.children {
+        write_render_tree(child, indent + 1, out);
+    }
+}
+
+fn write_render_ops(ops: &[RenderOp], out: &mut String) {
+    for (index, op) in ops.iter().enumerate() {
+        match op {
+            RenderOp::DrawBackgroundBorder(node) => {
+                out.push_str(&format!(
+                    "[{index}] DrawBackgroundBorder id={} bounds={:?}\n",
+                    node.id.value(),
+                    node.bounds,
+                ));
+            }
+            RenderOp::DrawText(node) => {
+                out.push_str(&format!(
+                    "[{index}] DrawText id={} bounds={:?} text={:?}\n",
+                    node.id.value(),
+                    node.bounds,
+                    node.text,
+                ));
+            }
+            RenderOp::PushClip(rect) => {
+                out.push_str(&format!("[{index}] PushClip rect={:?}\n", rect));
+            }
+            RenderOp::PopClip => {
+                out.push_str(&format!("[{index}] PopClip\n"));
+            }
+        }
+    }
+}
+
+fn dump_debug_state(
+    ctx: &mut LayoutContext,
+    snapshot: &Arc<RwLock<Option<RenderSnapshot>>>,
+    message_sender: &WindowMessageSender,
+) {
+    ctx.layout();
+    let root = ctx.document.root_node();
+    let snap = build_render_snapshot(root.clone());
+    *snapshot.write().unwrap() = Some(snap.clone());
+    message_sender.send(WindowMessage::Redraw);
+
+    let ts = Local::now().format("%Y-%m-%d_%H-%M-%S_%3f").to_string();
+    let style_path = format!("style_{ts}.txt");
+    let nodes_path = format!("nodes_{ts}.txt");
+
+    let mut style_dump = String::new();
+    style_dump.push_str(&format!("timestamp={ts}\n"));
+    style_dump.push_str("\n[stylesheet]\n");
+    style_dump.push_str(&format!("{:#?}\n", ctx.style_sheet));
+
+    style_dump.push_str("\n[computed_styles_from_render_tree]\n");
+    write_render_tree(&snap.root, 0, &mut style_dump);
+
+    let mut nodes_dump = String::new();
+    nodes_dump.push_str(&format!("timestamp={ts}\n"));
+    nodes_dump.push_str("\n[document_tree]\n");
+    write_document_tree(&root, 0, &mut nodes_dump);
+    nodes_dump.push_str("\n[render_tree]\n");
+    write_render_tree(&snap.root, 0, &mut nodes_dump);
+    nodes_dump.push_str("\n[render_ops]\n");
+    write_render_ops(&snap.render_list, &mut nodes_dump);
+
+    let mut wrote_style = false;
+    let mut wrote_nodes = false;
+
+    match fs::write(&style_path, style_dump) {
+        Ok(_) => wrote_style = true,
+        Err(err) => eprintln!("Failed to write debug style dump {style_path}: {err}"),
+    }
+
+    match fs::write(&nodes_path, nodes_dump) {
+        Ok(_) => wrote_nodes = true,
+        Err(err) => eprintln!("Failed to write debug nodes dump {nodes_path}: {err}"),
+    }
+
+    if wrote_style && wrote_nodes {
+        eprintln!("Debug dump written: {style_path}, {nodes_path}");
+    }
 }
 
 pub(crate) fn handle_commands(
@@ -167,6 +284,10 @@ pub(crate) fn handle_commands(
                     let snap = build_render_snapshot(root);
                     *snapshot.write().unwrap() = Some(snap);
                     message_sender.send(WindowMessage::Redraw);
+                    deadline = None;
+                }
+                Command::DumpDebugState => {
+                    dump_debug_state(&mut ctx, &snapshot, &message_sender);
                     deadline = None;
                 }
             },
