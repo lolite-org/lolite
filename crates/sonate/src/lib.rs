@@ -95,6 +95,7 @@ impl Engine {
         let input_sender = self.sender.clone();
         let key_sender = self.sender.clone();
         let resize_sender = self.sender.clone();
+        let debug_dump_sender = self.sender.clone();
 
         let mut params = windowing::Params {
             on_draw: Box::new(move |canvas| {
@@ -109,10 +110,14 @@ impl Engine {
 
                     let focused_text_input = elements.iter().find_map(|id| {
                         snapshot.root.find_node_by_id(*id).and_then(|node| {
-                            node.style.widget.is_some_and(|widget| widget.is_text_input()).then_some(*id)
+                            node.style
+                                .widget
+                                .is_some_and(|widget| widget.is_text_input())
+                                .then_some(*id)
                         })
                     });
-                    let _ = focus_sender.send(Command::InputSetFocusedTextInput(focused_text_input));
+                    let _ =
+                        focus_sender.send(Command::InputSetFocusedTextInput(focused_text_input));
 
                     if let Some(ref on_click) = params.on_click {
                         on_click(x, y, elements);
@@ -139,6 +144,9 @@ impl Engine {
                     InputKey::Backspace => Command::InputDeleteBackward,
                 };
                 let _ = key_sender.send(command);
+            }),
+            on_debug_dump: Box::new(move || {
+                let _ = debug_dump_sender.send(Command::DumpDebugState);
             }),
         };
 
