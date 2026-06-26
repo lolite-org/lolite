@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "jsx": "react",
+    "jsxFactory": "jsx",
+    "jsxFragmentFactory": "Fragment"
+  },
+  "imports": {
+    "sonate": "./sonate.ts",
+    "sonate/jsx-runtime": "./sonate.ts",
+    "react": "./sonate.ts",
+    "react/jsx-runtime": "./sonate.ts"
+  }
+}
