@@ -14,8 +14,8 @@ use windows::{
         Graphics::{
             Direct3D::D3D_FEATURE_LEVEL_11_0,
             Direct3D12::{
-                D3D12CreateDevice, D3D12GetDebugInterface, ID3D12Debug, ID3D12Device, ID3D12Fence,
-                D3D12_FENCE_FLAG_NONE, D3D12_RESOURCE_STATE_PRESENT,
+                D3D12CreateDevice, ID3D12Device, ID3D12Fence, D3D12_FENCE_FLAG_NONE,
+                D3D12_RESOURCE_STATE_PRESENT,
             },
             Dxgi::{
                 Common::{DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SAMPLE_DESC},
@@ -59,6 +59,8 @@ impl RenderingBackend for D3D12Backend {
         // Enable D3D12 debug layer (best effort)
         #[cfg(debug_assertions)]
         unsafe {
+            use windows::Win32::Graphics::Direct3D12::{D3D12GetDebugInterface, ID3D12Debug};
+
             let mut dbg: Option<ID3D12Debug> = None;
             if D3D12GetDebugInterface(&mut dbg).is_ok() {
                 if let Some(debug) = dbg {
