@@ -26,6 +26,43 @@ typedef size_t sonate_engine_handle_t;
 /* ID type for nodes and other engine-owned objects. */
 typedef uint64_t sonate_id_t;
 
+typedef enum sonate_event_type_t {
+    SONATE_EVENT_CLICK = 1,
+    SONATE_EVENT_SCROLL = 2,
+} sonate_event_type_t;
+
+/*
+ * Generic event payload.
+ *
+ * For SONATE_EVENT_CLICK:
+ *   - x/y are cursor coordinates
+ *   - element_ids/element_count describe hit-tested elements at cursor
+ *
+ * For SONATE_EVENT_SCROLL:
+ *   - scroll_target_id identifies the scrolled node
+ *   - scroll_dx/scroll_dy are the deltas
+ *   - element_ids/element_count are unused
+ *
+ * element_ids points to memory owned by sonate and is only valid
+ * for the duration of the callback invocation.
+ */
+typedef struct sonate_event_t {
+    sonate_event_type_t event_type;
+    double x;
+    double y;
+    sonate_id_t scroll_target_id;
+    double scroll_dx;
+    double scroll_dy;
+    const sonate_id_t* element_ids;
+    size_t element_count;
+} sonate_event_t;
+
+typedef void (*sonate_event_callback_t)(
+    sonate_engine_handle_t handle,
+    const sonate_event_t* event,
+    void* user_data
+);
+
 /*
  * Initialize the sonate engine.
  *
@@ -86,6 +123,20 @@ SONATE_API void sonate_destroy_node(sonate_engine_handle_t handle, sonate_id_t n
  *   root node id (0) or 0 if handle is invalid
  */
 SONATE_API sonate_id_t sonate_root_id(sonate_engine_handle_t handle);
+
+/*
+ * Register a generic event callback.
+ *
+ * callback may be NULL to clear the current callback.
+ *
+ * Returns:
+ *   0 on success, -1 on error
+ */
+SONATE_API int sonate_set_event_callback(
+    sonate_engine_handle_t handle,
+    sonate_event_callback_t callback,
+    void* user_data
+);
 
 /*
  * Run the engine event loop (blocking).

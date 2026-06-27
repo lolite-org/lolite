@@ -1,6 +1,23 @@
 use ipc_channel::ipc::IpcSender;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WorkerEventType {
+    Click,
+    Scroll,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerEvent {
+    pub event_type: WorkerEventType,
+    pub x: f64,
+    pub y: f64,
+    pub scroll_target_id: u64,
+    pub scroll_dx: f64,
+    pub scroll_dy: f64,
+    pub element_ids: Vec<u64>,
+}
+
 /// Cross-process requests sent from the host (sonate_lib) to the worker process (sonate_worker).
 ///
 /// This is intentionally small and can be extended as more FFI functions are proxied.
@@ -36,6 +53,10 @@ pub enum WorkerRequest {
     RootId {
         handle: u64,
         reply_to: IpcSender<u64>,
+    },
+    SetEventSender {
+        handle: u64,
+        sender: IpcSender<WorkerEvent>,
     },
     Run {
         handle: u64,

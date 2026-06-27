@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::c_void;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -18,6 +19,26 @@ pub type EngineHandle = usize;
 
 /// ID type for nodes and other engine-owned objects.
 pub type SonateId = u64;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub enum SonateEventType {
+    Click = 1,
+    Scroll = 2,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct SonateEvent {
+    pub event_type: SonateEventType,
+    pub x: f64,
+    pub y: f64,
+    pub scroll_target_id: SonateId,
+    pub scroll_dx: f64,
+    pub scroll_dy: f64,
+    pub element_ids: *const SonateId,
+    pub element_count: usize,
+}
 
 type EngineBox = Box<dyn EngineBackend>;
 type EngineRef = Arc<Mutex<EngineBox>>;
@@ -40,7 +61,7 @@ pub extern "C" fn sonate_init(use_same_process: bool) -> EngineHandle {
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
 
     let backend: EngineBox = if use_same_process {
-        Box::new(DirectBackend::new())
+        Box::new(DirectBackend::new(handle))
     } else {
         match WorkerBackend::new(handle) {
             Ok(b) => Box::new(b),
@@ -61,10 +82,10 @@ pub extern "C" fn sonate_init(use_same_process: bool) -> EngineHandle {
 
 #[no_mangle]
 pub extern "C" fn sonate_init_internal(handle: EngineHandle) {
-    ENGINE_INSTANCES
-        .lock()
-        .unwrap()
-        .insert(handle, Arc::new(Mutex::new(Box::new(DirectBackend::new()))));
+    ENGINE_INSTANCES.lock().unwrap().insert(
+        handle,
+        Arc::new(Mutex::new(Box::new(DirectBackend::new(handle)))),
+    );
 }
 
 fn get_engine(handle: EngineHandle) -> Option<EngineRef> {
@@ -273,6 +294,34 @@ pub extern "C" fn sonate_root_id(handle: EngineHandle) -> SonateId {
 
     let id = engine.lock().unwrap().root_id();
     id
+}
+
+/// Register a generic event callback.
+///
+/// Returns:
+/// * 0 on success, -1 on error
+#[no_mangle]
+pub extern "C" fn sonate_set_event_callback(
+    handle: EngineHandle,
+    callback: engine_backend::SonateEventCallback,
+    user_data: *mut c_void,
+) -> c_int {
+    if handle == 0 {
+        eprintln!("Invalid engine handle");
+        return -1;
+    }
+
+    let Some(engine) = get_engine(handle) else {
+        eprintln!("Engine handle not found");
+        return -1;
+    };
+
+    let result = engine
+        .lock()
+        .unwrap()
+        .set_event_callback(callback, user_data);
+
+    result
 }
 
 /// Run the engine event loop (blocking).
