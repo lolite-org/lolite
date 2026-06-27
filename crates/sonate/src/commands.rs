@@ -24,6 +24,8 @@ pub(crate) enum Command {
     SetViewportSize(f64, f64),
     RemoveNode(Id),
     Scroll(Id, f64, f64),
+    SetScrollX(Id, f64),
+    SetScrollY(Id, f64),
     DumpDebugState,
     #[allow(unused)]
     Layout,
@@ -273,6 +275,20 @@ pub(crate) fn handle_commands(
                     let state = ctx.scroll_state.entry(id).or_default();
                     state.scroll_x.set(state.scroll_x.get() + dx);
                     state.scroll_y.set(state.scroll_y.get() + dy);
+                    if deadline.is_none() {
+                        deadline = Some(Instant::now() + Duration::from_millis(16));
+                    }
+                }
+                Command::SetScrollX(id, x) => {
+                    let state = ctx.scroll_state.entry(id).or_default();
+                    state.scroll_x.set(x.max(0.0));
+                    if deadline.is_none() {
+                        deadline = Some(Instant::now() + Duration::from_millis(16));
+                    }
+                }
+                Command::SetScrollY(id, y) => {
+                    let state = ctx.scroll_state.entry(id).or_default();
+                    state.scroll_y.set(y.max(0.0));
                     if deadline.is_none() {
                         deadline = Some(Instant::now() + Duration::from_millis(16));
                     }
