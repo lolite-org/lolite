@@ -22,6 +22,10 @@ impl EngineBackend for DirectBackend {
         let _ = self.engine.create_node(Id::from_u64(node_id), text);
     }
 
+    fn destroy_node(&self, node_id: SonateId) {
+        self.engine.remove_node(Id::from_u64(node_id));
+    }
+
     fn set_parent(&self, parent_id: SonateId, child_id: SonateId) {
         self.engine
             .set_parent(Id::from_u64(parent_id), Id::from_u64(child_id));

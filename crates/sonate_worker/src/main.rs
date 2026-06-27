@@ -11,6 +11,7 @@ type EngineHandle = usize;
 type SonateInitInternal = unsafe extern "C" fn(EngineHandle);
 type SonateAddStylesheet = unsafe extern "C" fn(EngineHandle, *const c_char);
 type SonateCreateNode = unsafe extern "C" fn(EngineHandle, u64, *const c_char) -> u64;
+type SonateDestroyNode = unsafe extern "C" fn(EngineHandle, u64);
 type SonateSetParent = unsafe extern "C" fn(EngineHandle, u64, u64);
 type SonateSetAttribute = unsafe extern "C" fn(EngineHandle, u64, *const c_char, *const c_char);
 type SonateRootId = unsafe extern "C" fn(EngineHandle) -> u64;
@@ -63,6 +64,9 @@ fn main() {
         let sonate_create_node: libloading::Symbol<SonateCreateNode> = lib
             .get(b"sonate_create_node\0")
             .expect("worker: missing symbol sonate_create_node");
+        let sonate_destroy_node: libloading::Symbol<SonateDestroyNode> = lib
+            .get(b"sonate_destroy_node\0")
+            .expect("worker: missing symbol sonate_destroy_node");
         let sonate_set_parent: libloading::Symbol<SonateSetParent> = lib
             .get(b"sonate_set_parent\0")
             .expect("worker: missing symbol sonate_set_parent");
@@ -126,6 +130,9 @@ fn main() {
                             }
                         },
                     };
+                }
+                WorkerRequest::DestroyNode { handle, node_id } => {
+                    sonate_destroy_node(handle as EngineHandle, node_id);
                 }
                 WorkerRequest::SetParent {
                     handle,
