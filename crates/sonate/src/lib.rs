@@ -5,6 +5,7 @@ mod flex_layout;
 mod layout;
 mod painter;
 mod scrollbar;
+mod scrollbar_interaction;
 mod style;
 mod style_matching;
 mod text;
@@ -14,14 +15,14 @@ use crate::backend::InputKey;
 use commands::Command;
 use layout::RenderSnapshot;
 use painter::Painter;
-use scrollbar::{collect_scrollbar_thumbs, point_hits_thumb, ScrollbarAxis};
+use scrollbar::ScrollbarAxis;
+use scrollbar_interaction::{begin_scrollbar_drag, update_scrollbar_drag, ActiveScrollbarDrag};
 use std::sync::Mutex;
 use std::sync::{
     mpsc::{channel, Receiver, Sender},
     Arc, RwLock,
 };
 use std::thread;
-use std::time::{Duration, Instant};
 
 use crate::windowing::WindowMessageSender;
 
@@ -88,13 +89,6 @@ impl Engine {
 
     // Run the event loop
     pub fn run(&self, params: Params) -> Result<(), Error> {
-        #[derive(Clone, Copy)]
-        struct ActiveScrollbarDrag {
-            container_id: Id,
-            axis: ScrollbarAxis,
-            grab_offset: f64,
-        }
-
         // only allow running once
         let _lock = self.running.try_lock().map_err(|_| Error::AlreadyRunning)?;
 
@@ -113,8 +107,6 @@ impl Engine {
         let drag_state_up = drag_state.clone();
         let this4 = self.clone();
         let this5 = self.clone();
-        let wheel_capture: Arc<Mutex<Option<(Id, Instant)>>> = Arc::new(Mutex::new(None));
-        let wheel_capture_scroll = wheel_capture.clone();
 
         let mut params = windowing::Params {
             on_draw: Box::new(move |canvas| {
@@ -145,23 +137,10 @@ impl Engine {
             }),
             on_mouse_down: Box::new(move |x, y| {
                 if let Some(snapshot) = this4.get_current_snapshot() {
-                    let thumbs = collect_scrollbar_thumbs(&snapshot.root);
-                    for thumb in thumbs.iter().rev() {
-                        if point_hits_thumb(thumb, x, y) {
-                            let grab_offset = match thumb.axis {
-                                ScrollbarAxis::Vertical => y - thumb.rect.y,
-                                ScrollbarAxis::Horizontal => x - thumb.rect.x,
-                            }
-                            .clamp(0.0, thumb.thumb_length);
-
-                            *drag_state_down.lock().unwrap() = Some(ActiveScrollbarDrag {
-                                container_id: thumb.container_id,
-                                axis: thumb.axis,
-                                grab_offset,
-                            });
-                            return true;
-                        }
-                    }
+                    let active = begin_scrollbar_drag(&snapshot, x, y);
+                    let consumed = active.is_some();
+                    *drag_state_down.lock().unwrap() = active;
+                    return consumed;
                 }
 
                 *drag_state_down.lock().unwrap() = None;
@@ -178,48 +157,19 @@ impl Engine {
                     return;
                 };
 
-                let thumbs = collect_scrollbar_thumbs(&snapshot.root);
-                let thumb = thumbs
-                    .iter()
-                    .rev()
-                    .find(|thumb| {
-                        thumb.container_id == active.container_id && thumb.axis == active.axis
-                    })
-                    .copied();
-
-                let Some(thumb) = thumb else {
+                let Some(update) = update_scrollbar_drag(&snapshot, active, x, y) else {
                     *drag_state_move.lock().unwrap() = None;
                     return;
                 };
 
-                let cursor_main = match active.axis {
-                    ScrollbarAxis::Vertical => y,
-                    ScrollbarAxis::Horizontal => x,
-                };
-                let track_start = match active.axis {
-                    ScrollbarAxis::Vertical => thumb.clip_rect.y,
-                    ScrollbarAxis::Horizontal => thumb.clip_rect.x,
-                };
-
-                let travel = (thumb.track_length - thumb.thumb_length).max(0.0);
-                let start =
-                    (cursor_main - active.grab_offset).clamp(track_start, track_start + travel);
-                let offset = (start - track_start).max(0.0);
-
-                let new_scroll = if travel > 0.0 && thumb.max_scroll > 0.0 {
-                    (offset / travel) * thumb.max_scroll
-                } else {
-                    0.0
-                };
-
-                match active.axis {
+                match update.axis {
                     ScrollbarAxis::Vertical => {
                         let _ = scroll_drag_sender
-                            .send(Command::SetScrollY(active.container_id, new_scroll));
+                            .send(Command::SetScrollY(update.container_id, update.new_scroll));
                     }
                     ScrollbarAxis::Horizontal => {
                         let _ = scroll_drag_sender
-                            .send(Command::SetScrollX(active.container_id, new_scroll));
+                            .send(Command::SetScrollX(update.container_id, update.new_scroll));
                     }
                 }
             }),
@@ -230,30 +180,9 @@ impl Engine {
                 let _ = resize_sender.send(Command::SetViewportSize(width, height));
             }),
             on_scroll: Box::new(move |x, y, dx, dy| {
-                const WHEEL_CAPTURE_TIMEOUT: Duration = Duration::from_millis(120);
-
                 if let Some(snapshot) = this3.get_current_snapshot() {
-                    let now = Instant::now();
-                    let mut capture = wheel_capture_scroll.lock().unwrap();
-
-                    let captured_target = capture.and_then(|(id, last_seen)| {
-                        if now.duration_since(last_seen) <= WHEEL_CAPTURE_TIMEOUT
-                            && snapshot.root.find_node_by_id(id).is_some()
-                        {
-                            Some(id)
-                        } else {
-                            None
-                        }
-                    });
-
-                    let target = captured_target
-                        .or_else(|| snapshot.root.find_scrollable_at_position(x, y));
-
-                    if let Some(scrollable_id) = target {
+                    if let Some(scrollable_id) = snapshot.root.find_scrollable_at_position(x, y) {
                         this3.scroll(scrollable_id, -dx, -dy);
-                        *capture = Some((scrollable_id, now));
-                    } else {
-                        *capture = None;
                     }
                 }
             }),
