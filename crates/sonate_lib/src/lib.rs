@@ -227,6 +227,31 @@ pub extern "C" fn sonate_set_attribute(
         .set_attribute(node_id, key_str, value_str);
 }
 
+/// Remove a node and its descendants from the document.
+///
+/// # Arguments
+/// * `handle` - Engine handle returned from sonate_init
+/// * `node_id` - ID of the node to remove
+#[no_mangle]
+pub extern "C" fn sonate_destroy_node(handle: EngineHandle, node_id: SonateId) {
+    if handle == 0 {
+        eprintln!("Invalid engine handle");
+        return;
+    }
+
+    if node_id == 0 {
+        eprintln!("Invalid node id (0 is reserved for root)");
+        return;
+    }
+
+    let Some(engine) = get_engine(handle) else {
+        eprintln!("Engine handle not found");
+        return;
+    };
+
+    engine.lock().unwrap().destroy_node(node_id);
+}
+
 /// Get the root node ID of the document
 ///
 /// # Arguments

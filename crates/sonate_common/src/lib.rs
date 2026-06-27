@@ -18,6 +18,10 @@ pub enum WorkerRequest {
         node_id: u64,
         text: Option<String>,
     },
+    DestroyNode {
+        handle: u64,
+        node_id: u64,
+    },
     SetParent {
         handle: u64,
         parent_id: u64,

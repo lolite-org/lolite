@@ -72,6 +72,15 @@ impl EngineBackend for WorkerBackend {
         }
     }
 
+    fn destroy_node(&self, node_id: SonateId) {
+        if let Err(e) = self.sender.send(sonate_common::WorkerRequest::DestroyNode {
+            handle: self.handle as u64,
+            node_id,
+        }) {
+            eprintln!("Failed to send DestroyNode to worker: {e}");
+        }
+    }
+
     fn set_parent(&self, parent_id: SonateId, child_id: SonateId) {
         if let Err(e) = self.sender.send(sonate_common::WorkerRequest::SetParent {
             handle: self.handle as u64,

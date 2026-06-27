@@ -72,6 +72,14 @@ SONATE_API void sonate_set_parent(sonate_engine_handle_t handle, sonate_id_t par
 SONATE_API void sonate_set_attribute(sonate_engine_handle_t handle, sonate_id_t node_id, const char* key, const char* value);
 
 /*
+ * Remove a node and all of its descendants from the document.
+ *
+ * node_id:
+ *   target node id (must be non-zero; 0 is reserved for root)
+ */
+SONATE_API void sonate_destroy_node(sonate_engine_handle_t handle, sonate_id_t node_id);
+
+/*
  * Get the root node ID of the document.
  *
  * Returns:
