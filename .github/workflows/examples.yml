@@ -49,10 +49,17 @@ jobs:
         sudo apt-get install -y --no-install-recommends \
           cmake \
           build-essential \
+          libfreetype6-dev \
+          libfontconfig1-dev \
           pkg-config
     - name: Build Sonate release artifacts
       run: cargo build --release --verbose
-    - name: Configure C example
+    - name: Configure C example (Windows)
+      if: runner.os == 'Windows'
+      working-directory: examples/c_usage
+      run: cmake -S . -B build -A x64
+    - name: Configure C example (non-Windows)
+      if: runner.os != 'Windows'
       working-directory: examples/c_usage
       run: cmake -S . -B build
     - name: Build C example
