@@ -1,3 +1,11 @@
+import {
+  createEventController,
+  type SonateClickEvent,
+  type SonateRunHandlers,
+  type SonateScrollEvent,
+  type SonateEvent,
+} from "./events.ts";
+
 function defaultLibraryName(): string {
   if (Deno.build.os === "windows") {
     return "sonate.dll";
@@ -62,6 +70,10 @@ const lib = Deno.dlopen(libPath, {
     parameters: ["usize"],
     result: "u64",
   },
+  sonate_set_event_callback: {
+    parameters: ["usize", "pointer", "pointer"],
+    result: "i32",
+  },
   sonate_run: {
     parameters: ["usize"],
     result: "i32",
@@ -74,15 +86,46 @@ const lib = Deno.dlopen(libPath, {
 
 export const sonate = lib.symbols;
 
+export type {
+  SonateClickEvent,
+  SonateEvent,
+  SonateRunHandlers,
+  SonateScrollEvent,
+};
+
+const events = createEventController((engine, callbackPtr) =>
+  sonate.sonate_set_event_callback(engine, callbackPtr, null),
+);
+
 const encoder = new TextEncoder();
 
 export function encode(str: string): ArrayBuffer {
   return encoder.encode(str + "\0").buffer;
 }
 
+export const clearEventHandler = events.clearEventHandler;
+export const setEventHandler = events.setEventHandler;
+export const setClickHandler = events.setClickHandler;
+
+export function sonate_run(
+  engine: bigint,
+  handlers: SonateRunHandlers = {},
+): number {
+  return events.run(
+    engine,
+    (currentEngine) => sonate.sonate_run(currentEngine),
+    handlers,
+  );
+}
+
 let nextId = 1n;
 
 type SonateChild = SonateNode | string;
+
+type SonateProps = {
+  onclick?: (event: SonateClickEvent) => void;
+  [key: string]: unknown;
+};
 
 interface SonateNode {
   id: bigint;
@@ -91,7 +134,7 @@ interface SonateNode {
 
 export function jsx(
   _tag: string,
-  props: Record<string, string> | null,
+  props: SonateProps | null,
   ...children: SonateChild[]
 ): SonateNode {
   const engine = jsx._engine;
@@ -108,6 +151,15 @@ export function jsx(
 
   if (props) {
     for (const [key, value] of Object.entries(props)) {
+      if (key === "onclick" && typeof value === "function") {
+        events.registerNodeClickHandler(
+          engine,
+          id,
+          value as (event: SonateClickEvent) => void,
+        );
+        continue;
+      }
+
       if (typeof value === "string") {
         sonate.sonate_set_attribute(engine, id, encode(key), encode(value));
       }
@@ -130,6 +182,7 @@ export const jsxs = jsx;
 jsx._engine = 0n;
 
 export function render(engine: bigint, rootElement: () => SonateNode) {
+  events.clearNodeClickHandlers(engine);
   jsx._engine = engine;
   const tree = rootElement();
   const rootId = sonate.sonate_root_id(engine);
@@ -139,7 +192,7 @@ export function render(engine: bigint, rootElement: () => SonateNode) {
 declare global {
   namespace JSX {
     interface IntrinsicElements {
-      [tag: string]: Record<string, unknown>;
+      [tag: string]: SonateProps;
     }
   }
 }

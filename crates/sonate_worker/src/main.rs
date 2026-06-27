@@ -46,10 +46,15 @@ struct SonateEvent {
     element_count: usize,
 }
 
-static EVENT_SENDERS: LazyLock<Mutex<HashMap<EngineHandle, ipc::IpcSender<sonate_common::WorkerEvent>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static EVENT_SENDERS: LazyLock<
+    Mutex<HashMap<EngineHandle, ipc::IpcSender<sonate_common::WorkerEvent>>>,
+> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-extern "C" fn forward_worker_event(handle: EngineHandle, event: *const SonateEvent, _user_data: *mut c_void) {
+extern "C" fn forward_worker_event(
+    handle: EngineHandle,
+    event: *const SonateEvent,
+    _user_data: *mut c_void,
+) {
     if event.is_null() {
         return;
     }
@@ -265,7 +270,10 @@ fn main() {
                 }
                 WorkerRequest::Destroy { handle, reply_to } => {
                     let code = sonate_destroy(handle as EngineHandle);
-                    EVENT_SENDERS.lock().unwrap().remove(&(handle as EngineHandle));
+                    EVENT_SENDERS
+                        .lock()
+                        .unwrap()
+                        .remove(&(handle as EngineHandle));
                     let _ = reply_to.send(code);
                 }
                 WorkerRequest::Shutdown => {
