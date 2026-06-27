@@ -1,0 +1,88 @@
+name: Examples
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  rust_examples:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Linux system deps
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          libfreetype6-dev \
+          libfontconfig1-dev \
+          pkg-config
+    - name: Build Cargo examples
+      run: cargo build --workspace --examples --verbose
+
+  c_example:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Linux system deps
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          cmake \
+          build-essential \
+          pkg-config
+    - name: Build Sonate release artifacts
+      run: cargo build --release --verbose
+    - name: Configure C example
+      working-directory: examples/c_usage
+      run: cmake -S . -B build
+    - name: Build C example
+      working-directory: examples/c_usage
+      run: cmake --build build --config Release
+
+  deno_example:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Linux system deps
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          libfreetype6-dev \
+          libfontconfig1-dev \
+          pkg-config
+    - name: Install Deno
+      uses: denoland/setup-deno@v2
+      with:
+        deno-version: v2.x
+    - name: Build Sonate debug artifacts
+      run: cargo build --verbose
+    - name: Typecheck Deno example
+      working-directory: examples/deno_usage
+      run: deno check main.tsx
