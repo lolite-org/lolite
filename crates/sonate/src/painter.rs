@@ -1,5 +1,6 @@
 use crate::{
-    layout::{RenderOp, RenderSnapshot},
+    layout::{Rect as LayoutRect, RenderOp, RenderSnapshot},
+    scrollbar::{collect_scrollbar_thumbs, ScrollbarAxis, THUMB_CORNER_RADIUS},
     style::{BorderStyle, Length, Rgba},
     text::{FontSpec, SkiaTextMeasurer},
 };
@@ -17,6 +18,52 @@ impl<'a> Painter<'a> {
     pub fn paint(&mut self, snapshot: &RenderSnapshot) {
         self.canvas.clear(Color::WHITE);
         self.paint_ops(&snapshot.render_list);
+        self.paint_scrollbars(snapshot);
+    }
+
+    fn paint_scrollbars(&mut self, snapshot: &RenderSnapshot) {
+        let thumbs = collect_scrollbar_thumbs(&snapshot.root);
+        if thumbs.is_empty() {
+            return;
+        }
+
+        let mut paint = Paint::new(Color4f::new(0.20, 0.20, 0.20, 0.55), None);
+        paint.set_anti_alias(true);
+
+        for thumb in thumbs {
+            let has_clip = thumb.visible_clip.is_some();
+            if let Some(clip) = thumb.visible_clip {
+                self.canvas.save();
+                self.canvas
+                    .clip_rect(Self::to_skia_rect(clip), ClipOp::Intersect, true);
+            }
+
+            let rect = Rect::new(
+                thumb.rect.x as f32,
+                thumb.rect.y as f32,
+                (thumb.rect.x + thumb.rect.width) as f32,
+                (thumb.rect.y + thumb.rect.height) as f32,
+            );
+            let (rx, ry) = match thumb.axis {
+                ScrollbarAxis::Vertical => (THUMB_CORNER_RADIUS, THUMB_CORNER_RADIUS),
+                ScrollbarAxis::Horizontal => (THUMB_CORNER_RADIUS, THUMB_CORNER_RADIUS),
+            };
+            let rrect = RRect::new_rect_xy(rect, rx, ry);
+            self.canvas.draw_rrect(rrect, &paint);
+
+            if has_clip {
+                self.canvas.restore();
+            }
+        }
+    }
+
+    fn to_skia_rect(rect: LayoutRect) -> Rect {
+        Rect::new(
+            rect.x as f32,
+            rect.y as f32,
+            (rect.x + rect.width) as f32,
+            (rect.y + rect.height) as f32,
+        )
     }
 
     fn paint_ops(&mut self, ops: &[RenderOp]) {

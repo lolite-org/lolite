@@ -20,6 +20,9 @@ pub enum InputKey {
 pub struct Params {
     pub on_draw: Box<dyn FnMut(&Canvas)>,
     pub on_click: Box<dyn FnMut(f64, f64)>, // x, y coordinates in logical pixels (points)
+    pub on_mouse_down: Box<dyn FnMut(f64, f64) -> bool>,
+    pub on_mouse_up: Box<dyn FnMut(f64, f64)>,
+    pub on_mouse_move: Box<dyn FnMut(f64, f64)>,
     pub on_resize: Box<dyn FnMut(f64, f64)>, // width, height in logical pixels (points)
     pub on_scroll: Box<dyn FnMut(f64, f64, f64, f64)>, // x, y cursor position + dx, dy scroll delta in logical pixels
     pub on_text_input: Box<dyn FnMut(String)>,

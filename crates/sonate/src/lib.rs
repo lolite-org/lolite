@@ -4,6 +4,8 @@ mod css_parser;
 mod flex_layout;
 mod layout;
 mod painter;
+mod scrollbar;
+mod scrollbar_interaction;
 mod style;
 mod style_matching;
 mod text;
@@ -13,6 +15,8 @@ use crate::backend::InputKey;
 use commands::Command;
 use layout::RenderSnapshot;
 use painter::Painter;
+use scrollbar::ScrollbarAxis;
+use scrollbar_interaction::{begin_scrollbar_drag, update_scrollbar_drag, ActiveScrollbarDrag};
 use std::sync::Mutex;
 use std::sync::{
     mpsc::{channel, Receiver, Sender},
@@ -92,10 +96,17 @@ impl Engine {
         let this2 = self.clone();
         let this3 = self.clone();
         let focus_sender = self.sender.clone();
+        let scroll_drag_sender = self.sender.clone();
         let input_sender = self.sender.clone();
         let key_sender = self.sender.clone();
         let resize_sender = self.sender.clone();
         let debug_dump_sender = self.sender.clone();
+        let drag_state: Arc<Mutex<Option<ActiveScrollbarDrag>>> = Arc::new(Mutex::new(None));
+        let drag_state_down = drag_state.clone();
+        let drag_state_move = drag_state.clone();
+        let drag_state_up = drag_state.clone();
+        let this4 = self.clone();
+        let this5 = self.clone();
 
         let mut params = windowing::Params {
             on_draw: Box::new(move |canvas| {
@@ -123,6 +134,47 @@ impl Engine {
                         on_click(x, y, elements);
                     }
                 }
+            }),
+            on_mouse_down: Box::new(move |x, y| {
+                if let Some(snapshot) = this4.get_current_snapshot() {
+                    let active = begin_scrollbar_drag(&snapshot, x, y);
+                    let consumed = active.is_some();
+                    *drag_state_down.lock().unwrap() = active;
+                    return consumed;
+                }
+
+                *drag_state_down.lock().unwrap() = None;
+                false
+            }),
+            on_mouse_move: Box::new(move |x, y| {
+                let active = *drag_state_move.lock().unwrap();
+                let Some(active) = active else {
+                    return;
+                };
+
+                let Some(snapshot) = this5.get_current_snapshot() else {
+                    *drag_state_move.lock().unwrap() = None;
+                    return;
+                };
+
+                let Some(update) = update_scrollbar_drag(&snapshot, active, x, y) else {
+                    *drag_state_move.lock().unwrap() = None;
+                    return;
+                };
+
+                match update.axis {
+                    ScrollbarAxis::Vertical => {
+                        let _ = scroll_drag_sender
+                            .send(Command::SetScrollY(update.container_id, update.new_scroll));
+                    }
+                    ScrollbarAxis::Horizontal => {
+                        let _ = scroll_drag_sender
+                            .send(Command::SetScrollX(update.container_id, update.new_scroll));
+                    }
+                }
+            }),
+            on_mouse_up: Box::new(move |_x, _y| {
+                *drag_state_up.lock().unwrap() = None;
             }),
             on_resize: Box::new(move |width, height| {
                 let _ = resize_sender.send(Command::SetViewportSize(width, height));

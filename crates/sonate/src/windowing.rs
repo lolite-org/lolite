@@ -200,7 +200,21 @@ fn run_with_backend_impl<'a, B: RenderingBackend>(
                 } => {
                     let input_state = backend.input_state();
                     if let Some(cursor_position) = &input_state.cursor_position {
-                        (self.params.on_click)(cursor_position.x, cursor_position.y);
+                        let consumed =
+                            (self.params.on_mouse_down)(cursor_position.x, cursor_position.y);
+                        if !consumed {
+                            (self.params.on_click)(cursor_position.x, cursor_position.y);
+                        }
+                    }
+                }
+                WindowEvent::MouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                    ..
+                } => {
+                    let input_state = backend.input_state();
+                    if let Some(cursor_position) = &input_state.cursor_position {
+                        (self.params.on_mouse_up)(cursor_position.x, cursor_position.y);
                     }
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
@@ -219,6 +233,7 @@ fn run_with_backend_impl<'a, B: RenderingBackend>(
                 WindowEvent::CursorMoved { position, .. } => {
                     let logical_position = position.to_logical::<f64>(self.scale_factor);
                     backend.input_state_mut().cursor_position = Some(logical_position);
+                    (self.params.on_mouse_move)(logical_position.x, logical_position.y);
                 }
                 WindowEvent::RedrawRequested => backend.render(self.params),
                 WindowEvent::CloseRequested => event_loop.exit(),
