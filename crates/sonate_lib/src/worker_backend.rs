@@ -1,13 +1,25 @@
-use crate::engine_backend::{EngineBackend, SonateId};
+use crate::engine_backend::{EngineBackend, SonateEventCallback, SonateId};
 use ipc_channel::ipc::{self, IpcOneShotServer, IpcSender};
+use std::ffi::c_void;
 use std::os::raw::c_int;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::ptr;
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+#[derive(Default)]
+struct EventCallbackState {
+    callback: SonateEventCallback,
+    user_data: usize,
+}
 
 pub struct WorkerBackend {
     handle: usize,
     process: Child,
     sender: IpcSender<sonate_common::WorkerRequest>,
+    callback_state: Arc<Mutex<EventCallbackState>>,
+    event_listener_thread: Option<thread::JoinHandle<()>>,
 }
 
 impl WorkerBackend {
@@ -27,9 +39,13 @@ impl WorkerBackend {
             handle,
             process,
             sender,
+            callback_state: Arc::new(Mutex::new(EventCallbackState::default())),
+            event_listener_thread: None,
         };
 
+        let mut backend = backend;
         backend.init_internal();
+        backend.init_event_bridge()?;
         Ok(backend)
     }
 
@@ -46,6 +62,58 @@ impl WorkerBackend {
 
     fn shutdown(&self) {
         let _ = self.sender.send(sonate_common::WorkerRequest::Shutdown);
+    }
+
+    fn init_event_bridge(&mut self) -> std::io::Result<()> {
+        let (event_tx, event_rx) = ipc::channel::<sonate_common::WorkerEvent>()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+        self.sender
+            .send(sonate_common::WorkerRequest::SetEventSender {
+                handle: self.handle as u64,
+                sender: event_tx,
+            })
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+        let callback_state = Arc::clone(&self.callback_state);
+        let handle = self.handle;
+        self.event_listener_thread = Some(thread::spawn(move || {
+            while let Ok(worker_event) = event_rx.recv() {
+                let (callback, user_data) = {
+                    let state = callback_state.lock().unwrap();
+                    (state.callback, state.user_data)
+                };
+
+                let Some(callback) = callback else {
+                    continue;
+                };
+
+                let event_type = match worker_event.event_type {
+                    sonate_common::WorkerEventType::Click => crate::SonateEventType::Click,
+                    sonate_common::WorkerEventType::Scroll => crate::SonateEventType::Scroll,
+                };
+
+                let element_ids = worker_event.element_ids;
+                let event = crate::SonateEvent {
+                    event_type,
+                    x: worker_event.x,
+                    y: worker_event.y,
+                    scroll_target_id: worker_event.scroll_target_id,
+                    scroll_dx: worker_event.scroll_dx,
+                    scroll_dy: worker_event.scroll_dy,
+                    element_ids: if element_ids.is_empty() {
+                        ptr::null()
+                    } else {
+                        element_ids.as_ptr()
+                    },
+                    element_count: element_ids.len(),
+                };
+
+                callback(handle, &event, user_data as *mut c_void);
+            }
+        }));
+
+        Ok(())
     }
 }
 
@@ -131,6 +199,13 @@ impl EngineBackend for WorkerBackend {
         }
     }
 
+    fn set_event_callback(&self, callback: SonateEventCallback, user_data: *mut c_void) -> i32 {
+        let mut state = self.callback_state.lock().unwrap();
+        state.callback = callback;
+        state.user_data = user_data as usize;
+        0
+    }
+
     fn run(&self) -> c_int {
         let (reply_tx, reply_rx) = match ipc::channel::<i32>() {
             Ok(ch) => ch,
@@ -188,6 +263,9 @@ impl Drop for WorkerBackend {
     fn drop(&mut self) {
         self.shutdown();
         let _ = self.process.kill();
+        if let Some(thread) = self.event_listener_thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 

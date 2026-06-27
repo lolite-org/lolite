@@ -1,10 +1,12 @@
 use ipc_channel::ipc;
 use libloading::Library;
 use sonate_common::WorkerRequest;
+use std::collections::HashMap;
 use std::env;
 use std::ffi::CString;
-use std::os::raw::c_char;
+use std::os::raw::{c_char, c_void};
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 type EngineHandle = usize;
 
@@ -15,8 +17,79 @@ type SonateDestroyNode = unsafe extern "C" fn(EngineHandle, u64);
 type SonateSetParent = unsafe extern "C" fn(EngineHandle, u64, u64);
 type SonateSetAttribute = unsafe extern "C" fn(EngineHandle, u64, *const c_char, *const c_char);
 type SonateRootId = unsafe extern "C" fn(EngineHandle) -> u64;
+type SonateSetEventCallback = unsafe extern "C" fn(
+    EngineHandle,
+    Option<extern "C" fn(EngineHandle, *const SonateEvent, *mut c_void)>,
+    *mut c_void,
+) -> i32;
 type SonateRun = unsafe extern "C" fn(EngineHandle) -> i32;
 type SonateDestroy = unsafe extern "C" fn(EngineHandle) -> i32;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+enum SonateEventType {
+    Click = 1,
+    Scroll = 2,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct SonateEvent {
+    event_type: SonateEventType,
+    x: f64,
+    y: f64,
+    scroll_target_id: u64,
+    scroll_dx: f64,
+    scroll_dy: f64,
+    element_ids: *const u64,
+    element_count: usize,
+}
+
+static EVENT_SENDERS: LazyLock<
+    Mutex<HashMap<EngineHandle, ipc::IpcSender<sonate_common::WorkerEvent>>>,
+> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+extern "C" fn forward_worker_event(
+    handle: EngineHandle,
+    event: *const SonateEvent,
+    _user_data: *mut c_void,
+) {
+    if event.is_null() {
+        return;
+    }
+
+    let sender = {
+        let senders = EVENT_SENDERS.lock().unwrap();
+        senders.get(&handle).cloned()
+    };
+
+    let Some(sender) = sender else {
+        return;
+    };
+
+    let event = unsafe { &*event };
+    let element_ids = if event.element_ids.is_null() || event.element_count == 0 {
+        Vec::new()
+    } else {
+        unsafe { std::slice::from_raw_parts(event.element_ids, event.element_count) }.to_vec()
+    };
+
+    let event_type = match event.event_type {
+        SonateEventType::Click => sonate_common::WorkerEventType::Click,
+        SonateEventType::Scroll => sonate_common::WorkerEventType::Scroll,
+    };
+
+    let _ = sender.send(sonate_common::WorkerEvent {
+        event_type,
+        x: event.x,
+        y: event.y,
+        scroll_target_id: event.scroll_target_id,
+        scroll_dx: event.scroll_dx,
+        scroll_dy: event.scroll_dy,
+        element_ids,
+    });
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -76,6 +149,9 @@ fn main() {
         let sonate_root_id: libloading::Symbol<SonateRootId> = lib
             .get(b"sonate_root_id\0")
             .expect("worker: missing symbol sonate_root_id");
+        let sonate_set_event_callback: libloading::Symbol<SonateSetEventCallback> = lib
+            .get(b"sonate_set_event_callback\0")
+            .expect("worker: missing symbol sonate_set_event_callback");
         let sonate_run: libloading::Symbol<SonateRun> = lib
             .get(b"sonate_run\0")
             .expect("worker: missing symbol sonate_run");
@@ -173,15 +249,35 @@ fn main() {
                     let id = sonate_root_id(handle as EngineHandle);
                     let _ = reply_to.send(id);
                 }
+                WorkerRequest::SetEventSender { handle, sender } => {
+                    EVENT_SENDERS
+                        .lock()
+                        .unwrap()
+                        .insert(handle as EngineHandle, sender);
+
+                    let code = sonate_set_event_callback(
+                        handle as EngineHandle,
+                        Some(forward_worker_event),
+                        std::ptr::null_mut(),
+                    );
+                    if code != 0 {
+                        eprintln!("worker: failed to register event callback for handle {handle}");
+                    }
+                }
                 WorkerRequest::Run { handle, reply_to } => {
                     let code = sonate_run(handle as EngineHandle);
                     let _ = reply_to.send(code);
                 }
                 WorkerRequest::Destroy { handle, reply_to } => {
                     let code = sonate_destroy(handle as EngineHandle);
+                    EVENT_SENDERS
+                        .lock()
+                        .unwrap()
+                        .remove(&(handle as EngineHandle));
                     let _ = reply_to.send(code);
                 }
                 WorkerRequest::Shutdown => {
+                    EVENT_SENDERS.lock().unwrap().clear();
                     break;
                 }
             }
