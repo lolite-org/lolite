@@ -1,5 +1,41 @@
-const libPath = new URL("../../target/debug/libsonate.dylib", import.meta.url)
-  .pathname;
+function defaultLibraryName(): string {
+  if (Deno.build.os === "windows") {
+    return "sonate.dll";
+  }
+
+  if (Deno.build.os === "darwin") {
+    return "libsonate.dylib";
+  }
+
+  return "libsonate.so";
+}
+
+function resolveLibraryPath(): string {
+  const libraryName = defaultLibraryName();
+  const candidates = [
+    `../../target/debug/${libraryName}`,
+    `../../target/release/${libraryName}`,
+  ];
+
+  for (const candidate of candidates) {
+    const filePath = decodeURIComponent(
+      new URL(candidate, import.meta.url).pathname,
+    ).replace(/^\/([A-Za-z]:)/, "$1");
+
+    try {
+      Deno.statSync(filePath);
+      return filePath;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  return decodeURIComponent(
+    new URL(candidates[0], import.meta.url).pathname,
+  ).replace(/^\/([A-Za-z]:)/, "$1");
+}
+
+const libPath = resolveLibraryPath();
 
 const lib = Deno.dlopen(libPath, {
   sonate_init: {
@@ -100,8 +136,10 @@ export function render(engine: bigint, rootElement: () => SonateNode) {
   sonate.sonate_set_parent(engine, rootId, tree.id);
 }
 
-export declare namespace JSX {
-  export interface IntrinsicElements {
-    [tag: string]: Record<string, unknown>;
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      [tag: string]: Record<string, unknown>;
+    }
   }
 }
