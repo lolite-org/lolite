@@ -10,6 +10,12 @@ pub struct Painter<'a> {
     canvas: &'a Canvas,
 }
 
+fn debug_bounds_enabled() -> bool {
+    std::env::var("SONATE_DEBUG_BOUNDS")
+        .ok()
+        .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+}
+
 impl<'a> Painter<'a> {
     pub fn new(canvas: &'a Canvas) -> Self {
         Self { canvas }
@@ -19,6 +25,28 @@ impl<'a> Painter<'a> {
         self.canvas.clear(Color::WHITE);
         self.paint_ops(&snapshot.render_list);
         self.paint_scrollbars(snapshot);
+        if debug_bounds_enabled() {
+            self.paint_debug_bounds(&snapshot.root, 0);
+        }
+    }
+
+    fn paint_debug_bounds(&mut self, node: &crate::layout::RenderNode, depth: usize) {
+        let mut paint = Paint::new(Color4f::new(1.0, 0.0, 0.0, 0.95), None);
+        paint.set_style(skia_safe::paint::Style::Stroke);
+        paint.set_stroke_width((1.0 + depth as f32 * 0.1).min(2.5));
+        paint.set_anti_alias(true);
+
+        let rect = Rect::new(
+            node.bounds.x as f32,
+            node.bounds.y as f32,
+            (node.bounds.x + node.bounds.width) as f32,
+            (node.bounds.y + node.bounds.height) as f32,
+        );
+        self.canvas.draw_rect(rect, &paint);
+
+        for child in &node.children {
+            self.paint_debug_bounds(child, depth + 1);
+        }
     }
 
     fn paint_scrollbars(&mut self, snapshot: &RenderSnapshot) {

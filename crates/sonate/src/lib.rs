@@ -64,6 +64,12 @@ pub enum Error {
     UnknownError(String),
 }
 
+fn debug_enabled() -> bool {
+    std::env::var("SONATE_DEBUG")
+        .ok()
+        .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+}
+
 impl Engine {
     /// Create a new CSS engine instance
     pub fn new() -> Self {
@@ -91,6 +97,7 @@ impl Engine {
     pub fn run(&self, params: Params) -> Result<(), Error> {
         // only allow running once
         let _lock = self.running.try_lock().map_err(|_| Error::AlreadyRunning)?;
+        let debug_logging = debug_enabled();
 
         let this1 = self.clone();
         let this2 = self.clone();
@@ -118,6 +125,29 @@ impl Engine {
             on_click: Box::new(move |x, y| {
                 if let Some(snapshot) = this2.get_current_snapshot() {
                     let elements = snapshot.root.find_element_at_position(x, y);
+                    if debug_logging {
+                        let ids: Vec<u64> = elements.iter().map(|id| id.as_u64()).collect();
+                        let chain: Vec<String> = elements
+                            .iter()
+                            .filter_map(|id| {
+                                snapshot.root.find_node_by_id(*id).map(|node| {
+                                    format!(
+                                        "id={} bounds=({}, {}, {}, {}) text={:?}",
+                                        id.as_u64(),
+                                        node.bounds.x,
+                                        node.bounds.y,
+                                        node.bounds.width,
+                                        node.bounds.height,
+                                        node.text
+                                    )
+                                })
+                            })
+                            .collect();
+                        println!(
+                            "[sonate] click x={} y={} hit_ids={:?} hit_chain={:?}",
+                            x, y, ids, chain
+                        );
+                    }
 
                     let focused_text_input = elements.iter().find_map(|id| {
                         snapshot.root.find_node_by_id(*id).and_then(|node| {
@@ -182,7 +212,22 @@ impl Engine {
             on_scroll: Box::new(move |x, y, dx, dy| {
                 if let Some(snapshot) = this3.get_current_snapshot() {
                     if let Some(scrollable_id) = snapshot.root.find_scrollable_at_position(x, y) {
+                        if debug_logging {
+                            println!(
+                                "[sonate] scroll x={} y={} dx={} dy={} target_id={}",
+                                x,
+                                y,
+                                dx,
+                                dy,
+                                scrollable_id.as_u64()
+                            );
+                        }
                         this3.scroll(scrollable_id, -dx, -dy);
+                    } else if debug_logging {
+                        println!(
+                            "[sonate] scroll x={} y={} dx={} dy={} target_id=<none>",
+                            x, y, dx, dy
+                        );
                     }
                 }
             }),

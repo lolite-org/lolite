@@ -5,6 +5,12 @@ use winit::event_loop::EventLoopProxy;
 // Re-export types
 pub use crate::backend::Params;
 
+fn debug_enabled() -> bool {
+    std::env::var("SONATE_DEBUG")
+        .ok()
+        .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+}
+
 #[derive(Clone, Debug)]
 pub enum WindowMessage {
     Redraw,
@@ -86,12 +92,10 @@ fn run_with_backend_impl<'a, B: RenderingBackend>(
     let event_loop: EventLoop<WindowMessage> = event_loop_builder.build()?;
     // Publish a proxy so non-UI threads (layout/commands) can request redraws.
     message_sender.set_proxy(event_loop.create_proxy());
-    let debugging_enabled = std::env::var("LOLITE_DEBUG")
-        .ok()
-        .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+    let debugging_enabled = debug_enabled();
 
     if debugging_enabled {
-        println!("Debugging enabled. Press F9 to trigger a debug dump.");
+        println!("SONATE_DEBUG enabled. Press F9 to trigger a debug dump.");
     }
 
     struct Application<'a, B: RenderingBackend> {
