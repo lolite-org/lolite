@@ -1,7 +1,8 @@
-use crate::style::{Display, FlexDirection, FlexWrap, Length, Rule};
+use crate::style::{Directional, Display, FlexDirection, FlexWrap, Length, Rule, Style};
 
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 fn next_test_id() -> Id {
     static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -128,6 +129,44 @@ fn test_flex_direction_row() {
     assert_eq!(y1, 0.0);
     assert_eq!(y2, 0.0);
     assert_eq!(y3, 0.0);
+}
+
+#[test]
+fn test_auto_sized_nested_flex_container_uses_children_instead_of_default_size() {
+    let mut ctx = create_ctx();
+    let root = ctx.document.root_id();
+
+    let nested = create_flex_container(&mut ctx, Some(FlexDirection::Row), None, None, None);
+    ctx.document.set_parent(root, nested).unwrap();
+
+    {
+        let nested_node = ctx.document.nodes.get(&nested).unwrap();
+        nested_node.borrow_mut().layout.style = Arc::new(Style {
+            padding: Directional::set_all(Some(Length::Px(10.0))),
+            column_gap: Some(Length::Px(10.0)),
+            row_gap: Some(Length::Px(10.0)),
+            ..Default::default()
+        });
+    }
+
+    let child1 = create_flex_item(&mut ctx, 50.0, 20.0, None, None);
+    let child2 = create_flex_item(&mut ctx, 60.0, 20.0, None, None);
+    ctx.document.set_parent(nested, child1).unwrap();
+    ctx.document.set_parent(nested, child2).unwrap();
+
+    for child in [child1, child2] {
+        let child_node = ctx.document.nodes.get(&child).unwrap();
+        child_node.borrow_mut().layout.style = Arc::new(Style {
+            margin: Directional::set_all(Some(Length::Px(10.0))),
+            ..Default::default()
+        });
+    }
+
+    ctx.layout();
+
+    let (_x, _y, width, height) = get_bounds(&ctx, nested);
+    assert_eq!(width, 180.0);
+    assert_eq!(height, 60.0);
 }
 
 #[test]
