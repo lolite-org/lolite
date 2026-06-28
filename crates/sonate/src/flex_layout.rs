@@ -551,8 +551,8 @@ fn base_sizes_for_item(
     }
 
     // If this looks like a text node and doesn't have explicit sizes, prefer intrinsic text sizing.
-    let is_text_node = node.borrow().is_text_node()
-        || style.widget.is_some_and(|widget| widget.is_text_input());
+    let is_text_node =
+        node.borrow().is_text_node() || style.widget.is_some_and(|widget| widget.is_text_input());
 
     if is_text_node {
         if let Some(text) = node.borrow().text.as_deref() {
@@ -583,43 +583,33 @@ fn base_sizes_for_item(
         }
     }
 
+    // If the item is itself a container and does not have explicit sizes, approximate
+    // its border-box from its children instead of falling back to 100x30.
+    let is_container = !node.borrow().children.is_empty();
+    if is_container {
+        let (intrinsic_width, intrinsic_height) =
+            intrinsic_border_box_size_from_children(node, style, ctx, style);
+
+        if width_opt.is_none() && intrinsic_width > 0.0 {
+            width = intrinsic_width;
+        }
+
+        if height_opt.is_none() && intrinsic_height > 0.0 {
+            height = intrinsic_height;
+        }
+    }
+
     let (main_from_size, cross_from_size) = match direction {
         FlexDirection::Row | FlexDirection::RowReverse => (width, height),
         FlexDirection::Column | FlexDirection::ColumnReverse => (height, width),
     };
 
-    let mut main = match style.flex_basis.as_ref() {
+    let main = match style.flex_basis.as_ref() {
         Some(Length::Px(px)) => *px,
         Some(Length::Auto) => main_from_size,
         Some(other) => other.to_px(),
         None => main_from_size,
     };
-
-    // If the item is itself a container and has no explicit main size, approximate
-    // shrink-to-fit by looking at its children’s fixed sizes.
-    // This is a pragmatic bridge until we implement the full intrinsic sizing path.
-    let is_container = !node.borrow().children.is_empty();
-    let has_explicit_main = match direction {
-        FlexDirection::Row | FlexDirection::RowReverse => {
-            matches!(style.width, Some(Length::Px(_)))
-        }
-        FlexDirection::Column | FlexDirection::ColumnReverse => {
-            matches!(style.height, Some(Length::Px(_)))
-        }
-    };
-    if is_container && !has_explicit_main && style.flex_basis.is_none() {
-        // If the main size is currently coming from our hardcoded default, prefer
-        // a child-derived intrinsic size (this is needed for shrink-to-fit flex items).
-        let main_was_default = match direction {
-            FlexDirection::Row | FlexDirection::RowReverse => width_opt.is_none(),
-            FlexDirection::Column | FlexDirection::ColumnReverse => height_opt.is_none(),
-        };
-
-        let intrinsic = intrinsic_main_from_children(node, direction, ctx, style);
-        if intrinsic > 0.0 && main_was_default {
-            main = intrinsic;
-        }
-    }
 
     (main, cross_from_size)
 }
@@ -714,37 +704,74 @@ fn axis_border_sum_px(style: &Style, direction: &FlexDirection, axis: Axis) -> f
     }
 }
 
-fn intrinsic_main_from_children(
+fn intrinsic_border_box_size_from_children(
     node: &Rc<RefCell<Node>>,
-    parent_direction: &FlexDirection,
+    container_style: &Style,
     ctx: &LayoutContext,
     fallback: &Style,
-) -> f64 {
-    // Best-effort intrinsic main size used for shrink-to-fit containers.
-    // We intentionally keep this conservative (max of child fixed sizes), since Sonate
-    // does not yet implement min/max-content constraints or full intrinsic sizing.
+) -> (f64, f64) {
+    // Best-effort intrinsic border-box size for auto-sized flex item containers.
+    // This estimates the container from its children using the container's own
+    // flex direction, gaps, padding and border.
 
     let children = node.borrow().children.clone();
     if children.is_empty() {
-        return 0.0;
+        return (0.0, 0.0);
     }
 
-    let is_row_main = matches!(
-        parent_direction,
-        FlexDirection::Row | FlexDirection::RowReverse
-    );
+    let direction = container_style.flex_direction.unwrap_or(FlexDirection::Row);
+    let is_row_main = matches!(direction, FlexDirection::Row | FlexDirection::RowReverse);
+    let row_gap_px = container_style.row_gap.unwrap_or(Length::Px(0.0)).to_px();
+    let column_gap_px = container_style
+        .column_gap
+        .unwrap_or(Length::Px(0.0))
+        .to_px();
+    let main_gap_px = if is_row_main {
+        column_gap_px
+    } else {
+        row_gap_px
+    };
 
-    children
-        .iter()
-        .map(|c| {
-            let s = resolve_style(c, ctx, fallback);
-            if is_row_main {
-                s.width.as_ref().map(|l| l.to_px()).unwrap_or(100.0)
-            } else {
-                s.height.as_ref().map(|l| l.to_px()).unwrap_or(30.0)
-            }
-        })
-        .fold(0.0, f64::max)
+    let padding = container_style.padding.resolved();
+    let padding_w = padding.left.to_px() + padding.right.to_px();
+    let padding_h = padding.top.to_px() + padding.bottom.to_px();
+    let border = container_style.border_width.resolved();
+    let border_w = border.left.to_px() + border.right.to_px();
+    let border_h = border.top.to_px() + border.bottom.to_px();
+
+    let mut content_main: f64 = 0.0;
+    let mut content_cross: f64 = 0.0;
+
+    for (index, child) in children.iter().enumerate() {
+        let child_style = resolve_style(child, ctx, fallback);
+        let (child_main, child_cross) = base_sizes_for_item(child, &child_style, &direction, ctx);
+        let margins = child_style.margin.resolved();
+        let (main_before, main_after, cross_before, cross_after) =
+            margins_for_direction(&margins, &direction);
+
+        let child_outer_main =
+            child_main + length_px_or_zero(&main_before) + length_px_or_zero(&main_after);
+        let child_outer_cross =
+            child_cross + length_px_or_zero(&cross_before) + length_px_or_zero(&cross_after);
+
+        if index > 0 {
+            content_main += main_gap_px;
+        }
+        content_main += child_outer_main;
+        content_cross = content_cross.max(child_outer_cross);
+    }
+
+    if is_row_main {
+        (
+            content_main + padding_w + border_w,
+            content_cross + padding_h + border_h,
+        )
+    } else {
+        (
+            content_cross + padding_w + border_w,
+            content_main + padding_h + border_h,
+        )
+    }
 }
 
 fn cross_size_is_auto(style: &Style, direction: &FlexDirection) -> bool {

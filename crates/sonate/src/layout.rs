@@ -773,9 +773,7 @@ impl RenderNode {
             }
         }
 
-        if !self.bounds.contains_point(x, y) {
-            return None;
-        }
+        let contains_self = self.bounds.contains_point(x, y);
 
         // A node's overflow clip applies to its *descendants* (content), not to its own border box.
         let descendant_clip = match self.style.overflow {
@@ -809,7 +807,11 @@ impl RenderNode {
             }
         }
 
-        Some(vec![self.id])
+        if contains_self {
+            Some(vec![self.id])
+        } else {
+            None
+        }
     }
 }
 

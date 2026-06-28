@@ -293,3 +293,59 @@ fn test_find_element_at_position_respects_overflow_hidden_clip() {
     assert_eq!(result[1], container_id);
     assert_eq!(result[2], root_id);
 }
+
+#[test]
+fn test_find_element_at_position_allows_overflow_visible_children_outside_parent() {
+    let mut ctx = LayoutContext::new();
+    let root_id = ctx.document.root_id();
+
+    let container_id = ctx.document.create_node(next_test_id(), None);
+    let child_id = ctx.document.create_node(next_test_id(), None);
+
+    ctx.document.set_parent(root_id, container_id).unwrap();
+    ctx.document.set_parent(container_id, child_id).unwrap();
+
+    {
+        let root = ctx.document.root_node();
+        let mut root_borrow = root.borrow_mut();
+        root_borrow.layout.bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 800.0,
+            height: 800.0,
+        };
+    }
+
+    {
+        let container = ctx.document.nodes.get(&container_id).unwrap();
+        let mut container_borrow = container.borrow_mut();
+        container_borrow.layout.bounds = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 30.0,
+        };
+        container_borrow.layout.style = std::sync::Arc::new(Style::default());
+    }
+
+    {
+        let child = ctx.document.nodes.get(&child_id).unwrap();
+        let mut child_borrow = child.borrow_mut();
+        child_borrow.layout.bounds = Rect {
+            x: 294.7,
+            y: 20.0,
+            width: 66.0,
+            height: 33.8,
+        };
+    }
+
+    let tree = build_render_snapshot(ctx.document.root_node()).root;
+
+    // Point is outside container bounds but inside child bounds; overflow is visible,
+    // so child should remain hittable.
+    let result = tree.find_element_at_position(301.6, 25.0);
+    assert_eq!(result.len(), 3);
+    assert_eq!(result[0], child_id);
+    assert_eq!(result[1], container_id);
+    assert_eq!(result[2], root_id);
+}
