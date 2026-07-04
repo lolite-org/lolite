@@ -16,10 +16,10 @@ struct EventCallbackState {
 
 pub struct WorkerBackend {
     handle: usize,
-    process: Child,
-    sender: IpcSender<sonate_common::WorkerRequest>,
+    process: Mutex<Child>,
+    sender: Mutex<IpcSender<sonate_common::WorkerRequest>>,
     callback_state: Arc<Mutex<EventCallbackState>>,
-    event_listener_thread: Option<thread::JoinHandle<()>>,
+    event_listener_thread: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
 impl WorkerBackend {
@@ -37,47 +37,50 @@ impl WorkerBackend {
 
         let backend = Self {
             handle,
-            process,
-            sender,
+            process: Mutex::new(process),
+            sender: Mutex::new(sender),
             callback_state: Arc::new(Mutex::new(EventCallbackState::default())),
-            event_listener_thread: None,
+            event_listener_thread: Mutex::new(None),
         };
 
-        let mut backend = backend;
         backend.init_internal();
         backend.init_event_bridge()?;
         Ok(backend)
     }
 
+    fn send(&self, request: sonate_common::WorkerRequest) -> Result<(), String> {
+        self.sender
+            .lock()
+            .unwrap()
+            .send(request)
+            .map_err(|e| e.to_string())
+    }
+
     fn init_internal(&self) {
-        if let Err(e) = self
-            .sender
-            .send(sonate_common::WorkerRequest::InitInternal {
-                handle: self.handle as u64,
-            })
-        {
+        if let Err(e) = self.send(sonate_common::WorkerRequest::InitInternal {
+            handle: self.handle as u64,
+        }) {
             eprintln!("Failed to send InitInternal to worker: {e}");
         }
     }
 
     fn shutdown(&self) {
-        let _ = self.sender.send(sonate_common::WorkerRequest::Shutdown);
+        let _ = self.send(sonate_common::WorkerRequest::Shutdown);
     }
 
-    fn init_event_bridge(&mut self) -> std::io::Result<()> {
+    fn init_event_bridge(&self) -> std::io::Result<()> {
         let (event_tx, event_rx) = ipc::channel::<sonate_common::WorkerEvent>()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
-        self.sender
-            .send(sonate_common::WorkerRequest::SetEventSender {
-                handle: self.handle as u64,
-                sender: event_tx,
-            })
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        self.send(sonate_common::WorkerRequest::SetEventSender {
+            handle: self.handle as u64,
+            sender: event_tx,
+        })
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
         let callback_state = Arc::clone(&self.callback_state);
         let handle = self.handle;
-        self.event_listener_thread = Some(thread::spawn(move || {
+        *self.event_listener_thread.lock().unwrap() = Some(thread::spawn(move || {
             while let Ok(worker_event) = event_rx.recv() {
                 let (callback, user_data) = {
                     let state = callback_state.lock().unwrap();
@@ -119,19 +122,16 @@ impl WorkerBackend {
 
 impl EngineBackend for WorkerBackend {
     fn add_stylesheet(&self, css: String) {
-        if let Err(e) = self
-            .sender
-            .send(sonate_common::WorkerRequest::AddStylesheet {
-                handle: self.handle as u64,
-                css,
-            })
-        {
+        if let Err(e) = self.send(sonate_common::WorkerRequest::AddStylesheet {
+            handle: self.handle as u64,
+            css,
+        }) {
             eprintln!("Failed to send AddStylesheet to worker: {e}");
         }
     }
 
     fn create_node(&self, node_id: SonateId, text: Option<String>) {
-        if let Err(e) = self.sender.send(sonate_common::WorkerRequest::CreateNode {
+        if let Err(e) = self.send(sonate_common::WorkerRequest::CreateNode {
             handle: self.handle as u64,
             node_id,
             text,
@@ -141,7 +141,7 @@ impl EngineBackend for WorkerBackend {
     }
 
     fn destroy_node(&self, node_id: SonateId) {
-        if let Err(e) = self.sender.send(sonate_common::WorkerRequest::DestroyNode {
+        if let Err(e) = self.send(sonate_common::WorkerRequest::DestroyNode {
             handle: self.handle as u64,
             node_id,
         }) {
@@ -150,7 +150,7 @@ impl EngineBackend for WorkerBackend {
     }
 
     fn set_parent(&self, parent_id: SonateId, child_id: SonateId) {
-        if let Err(e) = self.sender.send(sonate_common::WorkerRequest::SetParent {
+        if let Err(e) = self.send(sonate_common::WorkerRequest::SetParent {
             handle: self.handle as u64,
             parent_id,
             child_id,
@@ -160,16 +160,23 @@ impl EngineBackend for WorkerBackend {
     }
 
     fn set_attribute(&self, node_id: SonateId, key: String, value: String) {
-        if let Err(e) = self
-            .sender
-            .send(sonate_common::WorkerRequest::SetAttribute {
-                handle: self.handle as u64,
-                node_id,
-                key,
-                value,
-            })
-        {
+        if let Err(e) = self.send(sonate_common::WorkerRequest::SetAttribute {
+            handle: self.handle as u64,
+            node_id,
+            key,
+            value,
+        }) {
             eprintln!("Failed to send SetAttribute to worker: {e}");
+        }
+    }
+
+    fn set_text(&self, node_id: SonateId, text: Option<String>) {
+        if let Err(e) = self.send(sonate_common::WorkerRequest::SetText {
+            handle: self.handle as u64,
+            node_id,
+            text,
+        }) {
+            eprintln!("Failed to send SetText to worker: {e}");
         }
     }
 
@@ -182,7 +189,7 @@ impl EngineBackend for WorkerBackend {
             }
         };
 
-        if let Err(e) = self.sender.send(sonate_common::WorkerRequest::RootId {
+        if let Err(e) = self.send(sonate_common::WorkerRequest::RootId {
             handle: self.handle as u64,
             reply_to: reply_tx,
         }) {
@@ -215,7 +222,7 @@ impl EngineBackend for WorkerBackend {
             }
         };
 
-        if let Err(e) = self.sender.send(sonate_common::WorkerRequest::Run {
+        if let Err(e) = self.send(sonate_common::WorkerRequest::Run {
             handle: self.handle as u64,
             reply_to: reply_tx,
         }) {
@@ -241,7 +248,7 @@ impl EngineBackend for WorkerBackend {
             }
         };
 
-        if let Err(e) = self.sender.send(sonate_common::WorkerRequest::Destroy {
+        if let Err(e) = self.send(sonate_common::WorkerRequest::Destroy {
             handle: self.handle as u64,
             reply_to: reply_tx,
         }) {
@@ -262,8 +269,8 @@ impl EngineBackend for WorkerBackend {
 impl Drop for WorkerBackend {
     fn drop(&mut self) {
         self.shutdown();
-        let _ = self.process.kill();
-        if let Some(thread) = self.event_listener_thread.take() {
+        let _ = self.process.lock().unwrap().kill();
+        if let Some(thread) = self.event_listener_thread.lock().unwrap().take() {
             let _ = thread.join();
         }
     }
@@ -292,6 +299,16 @@ fn resolve_worker_path() -> Option<PathBuf> {
         return Some(PathBuf::from(path));
     }
 
+    // Look next to the loaded sonate dynamic library. This is the common case
+    // when the library is embedded by another runtime (e.g. Deno) whose
+    // executable does not live next to the worker binary.
+    if let Some(dir) = current_library_dir() {
+        let candidate = dir.join(WORKER_FILE);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(dir) = exe_path.parent() {
             let candidate = dir.join(WORKER_FILE);
@@ -302,5 +319,26 @@ fn resolve_worker_path() -> Option<PathBuf> {
     }
 
     // We do not do PATH lookup, so we return None
+    None
+}
+
+/// Directory containing the sonate dynamic library this code is compiled into.
+#[cfg(unix)]
+fn current_library_dir() -> Option<PathBuf> {
+    let mut info: libc::Dl_info = unsafe { std::mem::zeroed() };
+    let symbol_in_this_library = resolve_worker_path as *const c_void;
+
+    let found = unsafe { libc::dladdr(symbol_in_this_library, &mut info) };
+    if found == 0 || info.dli_fname.is_null() {
+        return None;
+    }
+
+    let path = unsafe { std::ffi::CStr::from_ptr(info.dli_fname) };
+    let path = PathBuf::from(path.to_string_lossy().into_owned());
+    path.parent().map(|dir| dir.to_path_buf())
+}
+
+#[cfg(not(unix))]
+fn current_library_dir() -> Option<PathBuf> {
     None
 }

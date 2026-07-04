@@ -51,6 +51,10 @@ impl EngineBackend for DirectBackend {
         self.engine.set_attribute(Id::from_u64(node_id), key, value);
     }
 
+    fn set_text(&self, node_id: SonateId, text: Option<String>) {
+        self.engine.set_text(Id::from_u64(node_id), text);
+    }
+
     fn root_id(&self) -> SonateId {
         self.engine.root_id().as_u64()
     }

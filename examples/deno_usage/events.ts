@@ -37,6 +37,15 @@ type CallbackRegistration = {
   callback: { close: () => void };
 };
 
+type SetEventHandlerOptions = {
+  /**
+   * Create a thread-safe callback that can be invoked from foreign threads.
+   * Required for the non-blocking (worker mode) run, where events arrive on
+   * a background listener thread instead of via same-thread re-entry.
+   */
+  threadSafe?: boolean;
+};
+
 type NodeClickHandler = (event: SonateClickEvent) => void;
 
 type SetNativeEventCallback = (
@@ -140,6 +149,10 @@ export function createEventController(
     handlers.set(nodeId, handler);
   }
 
+  function unregisterNodeClickHandler(engine: bigint, nodeId: bigint) {
+    nodeClickHandlers.get(engine)?.delete(nodeId);
+  }
+
   function dispatchNodeClickHandlers(engine: bigint, event: SonateClickEvent) {
     const handlers = nodeClickHandlers.get(engine);
     if (!handlers) {
@@ -158,21 +171,29 @@ export function createEventController(
   function setEventHandler(
     engine: bigint,
     handler: (event: SonateEvent) => void,
+    options: SetEventHandlerOptions = {},
   ) {
     clearEventHandler(engine);
 
-    const callback = new Deno.UnsafeCallback(
-      {
-        parameters: ["usize", "pointer", "pointer"],
-        result: "void",
-      },
-      (_handle, eventPtr) => {
-        const event = decodeEvent(eventPtr);
-        if (event !== null) {
-          handler(event);
-        }
-      },
-    );
+    const definition = {
+      parameters: ["usize", "pointer", "pointer"],
+      result: "void",
+    } as const;
+
+    const onNativeEvent = (
+      _handle: number | bigint,
+      eventPtr: Deno.PointerValue,
+      _userData: Deno.PointerValue,
+    ) => {
+      const event = decodeEvent(eventPtr);
+      if (event !== null) {
+        handler(event);
+      }
+    };
+
+    const callback = options.threadSafe
+      ? Deno.UnsafeCallback.threadSafe(definition, onNativeEvent)
+      : new Deno.UnsafeCallback(definition, onNativeEvent);
 
     const code = setNativeCallback(engine, callback.pointer);
     if (code !== 0) {
@@ -194,12 +215,8 @@ export function createEventController(
     });
   }
 
-  function run(
-    engine: bigint,
-    nativeRun: (engine: bigint) => number,
-    handlers: SonateRunHandlers = {},
-  ): number {
-    setEventHandler(engine, (event) => {
+  function createDispatcher(engine: bigint, handlers: SonateRunHandlers) {
+    return (event: SonateEvent) => {
       handlers.onEvent?.(event);
 
       if (event.type === "click") {
@@ -209,10 +226,34 @@ export function createEventController(
       }
 
       handlers.onScroll?.(event);
-    });
+    };
+  }
+
+  function run(
+    engine: bigint,
+    nativeRun: (engine: bigint) => number,
+    handlers: SonateRunHandlers = {},
+  ): number {
+    setEventHandler(engine, createDispatcher(engine, handlers));
 
     try {
       return nativeRun(engine);
+    } finally {
+      clearEventHandler(engine);
+    }
+  }
+
+  async function runAsync(
+    engine: bigint,
+    nativeRun: (engine: bigint) => Promise<number>,
+    handlers: SonateRunHandlers = {},
+  ): Promise<number> {
+    setEventHandler(engine, createDispatcher(engine, handlers), {
+      threadSafe: true,
+    });
+
+    try {
+      return await nativeRun(engine);
     } finally {
       clearEventHandler(engine);
     }
@@ -222,7 +263,9 @@ export function createEventController(
     clearEventHandler,
     clearNodeClickHandlers,
     registerNodeClickHandler,
+    unregisterNodeClickHandler,
     run,
+    runAsync,
     setClickHandler,
     setEventHandler,
   };
