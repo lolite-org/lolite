@@ -50,6 +50,11 @@ pub enum WorkerRequest {
         key: String,
         value: String,
     },
+    SetText {
+        handle: u64,
+        node_id: u64,
+        text: Option<String>,
+    },
     RootId {
         handle: u64,
         reply_to: IpcSender<u64>,

@@ -187,6 +187,12 @@ impl Document {
         }
     }
 
+    pub fn set_text(&mut self, node_id: Id, text: Option<String>) {
+        if let Some(node) = self.nodes.get(&node_id) {
+            node.borrow_mut().text = text;
+        }
+    }
+
     #[allow(unused)]
     pub fn get_attribute(&self, node_id: Id, key: String) -> Option<String> {
         self.nodes

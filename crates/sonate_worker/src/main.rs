@@ -16,6 +16,7 @@ type SonateCreateNode = unsafe extern "C" fn(EngineHandle, u64, *const c_char) -
 type SonateDestroyNode = unsafe extern "C" fn(EngineHandle, u64);
 type SonateSetParent = unsafe extern "C" fn(EngineHandle, u64, u64);
 type SonateSetAttribute = unsafe extern "C" fn(EngineHandle, u64, *const c_char, *const c_char);
+type SonateSetText = unsafe extern "C" fn(EngineHandle, u64, *const c_char);
 type SonateRootId = unsafe extern "C" fn(EngineHandle) -> u64;
 type SonateSetEventCallback = unsafe extern "C" fn(
     EngineHandle,
@@ -24,6 +25,40 @@ type SonateSetEventCallback = unsafe extern "C" fn(
 ) -> i32;
 type SonateRun = unsafe extern "C" fn(EngineHandle) -> i32;
 type SonateDestroy = unsafe extern "C" fn(EngineHandle) -> i32;
+
+/// Plain function pointers extracted from the sonate dynamic library.
+///
+/// Function pointers are `Copy + Send + Sync`, so the request-handling thread
+/// and the main thread (which must own the window event loop) can both use
+/// them. The library itself is intentionally leaked so the pointers stay
+/// valid for the whole process lifetime.
+#[derive(Clone, Copy)]
+struct SonateApi {
+    init_internal: SonateInitInternal,
+    add_stylesheet: SonateAddStylesheet,
+    create_node: SonateCreateNode,
+    destroy_node: SonateDestroyNode,
+    set_parent: SonateSetParent,
+    set_attribute: SonateSetAttribute,
+    set_text: SonateSetText,
+    root_id: SonateRootId,
+    set_event_callback: SonateSetEventCallback,
+    run: SonateRun,
+    destroy: SonateDestroy,
+}
+
+/// Work that must be executed on the worker's main thread.
+///
+/// The windowing event loop (winit) requires the process main thread on
+/// macOS, so `sonate_run` is dispatched here while all other requests are
+/// handled on a separate thread. This keeps document mutations flowing while
+/// the window is open.
+enum MainThreadTask {
+    Run {
+        handle: EngineHandle,
+        reply_to: ipc::IpcSender<i32>,
+    },
+}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -127,38 +162,61 @@ fn main() {
         })
     };
 
-    unsafe {
-        let sonate_init_internal: libloading::Symbol<SonateInitInternal> = lib
-            .get(b"sonate_init_internal\0")
-            .expect("worker: missing symbol sonate_init_internal");
-        let sonate_add_stylesheet: libloading::Symbol<SonateAddStylesheet> = lib
-            .get(b"sonate_add_stylesheet\0")
-            .expect("worker: missing symbol sonate_add_stylesheet");
-        let sonate_create_node: libloading::Symbol<SonateCreateNode> = lib
-            .get(b"sonate_create_node\0")
-            .expect("worker: missing symbol sonate_create_node");
-        let sonate_destroy_node: libloading::Symbol<SonateDestroyNode> = lib
-            .get(b"sonate_destroy_node\0")
-            .expect("worker: missing symbol sonate_destroy_node");
-        let sonate_set_parent: libloading::Symbol<SonateSetParent> = lib
-            .get(b"sonate_set_parent\0")
-            .expect("worker: missing symbol sonate_set_parent");
-        let sonate_set_attribute: libloading::Symbol<SonateSetAttribute> = lib
-            .get(b"sonate_set_attribute\0")
-            .expect("worker: missing symbol sonate_set_attribute");
-        let sonate_root_id: libloading::Symbol<SonateRootId> = lib
-            .get(b"sonate_root_id\0")
-            .expect("worker: missing symbol sonate_root_id");
-        let sonate_set_event_callback: libloading::Symbol<SonateSetEventCallback> = lib
-            .get(b"sonate_set_event_callback\0")
-            .expect("worker: missing symbol sonate_set_event_callback");
-        let sonate_run: libloading::Symbol<SonateRun> = lib
-            .get(b"sonate_run\0")
-            .expect("worker: missing symbol sonate_run");
-        let sonate_destroy: libloading::Symbol<SonateDestroy> = lib
-            .get(b"sonate_destroy\0")
-            .expect("worker: missing symbol sonate_destroy");
+    let api = unsafe { load_api(&lib) };
 
+    // Keep the library loaded for the whole process lifetime so the extracted
+    // function pointers stay valid on both threads.
+    std::mem::forget(lib);
+
+    // The windowing event loop must run on the process main thread (a hard
+    // requirement on macOS). Handle requests on a dedicated thread and forward
+    // `Run` to the main thread, so document mutations keep being processed
+    // while the window is open.
+    let (main_tx, main_rx) = std::sync::mpsc::channel::<MainThreadTask>();
+
+    std::thread::spawn(move || handle_requests(rx, api, main_tx));
+
+    while let Ok(task) = main_rx.recv() {
+        match task {
+            MainThreadTask::Run { handle, reply_to } => {
+                let code = unsafe { (api.run)(handle) };
+                let _ = reply_to.send(code);
+            }
+        }
+    }
+}
+
+unsafe fn load_api(lib: &Library) -> SonateApi {
+    unsafe fn symbol<T: Copy>(lib: &Library, name: &[u8]) -> T {
+        *lib.get::<T>(name).unwrap_or_else(|_| {
+            panic!(
+                "worker: missing symbol {}",
+                String::from_utf8_lossy(&name[..name.len() - 1])
+            )
+        })
+    }
+
+    SonateApi {
+        init_internal: symbol(lib, b"sonate_init_internal\0"),
+        add_stylesheet: symbol(lib, b"sonate_add_stylesheet\0"),
+        create_node: symbol(lib, b"sonate_create_node\0"),
+        destroy_node: symbol(lib, b"sonate_destroy_node\0"),
+        set_parent: symbol(lib, b"sonate_set_parent\0"),
+        set_attribute: symbol(lib, b"sonate_set_attribute\0"),
+        set_text: symbol(lib, b"sonate_set_text\0"),
+        root_id: symbol(lib, b"sonate_root_id\0"),
+        set_event_callback: symbol(lib, b"sonate_set_event_callback\0"),
+        run: symbol(lib, b"sonate_run\0"),
+        destroy: symbol(lib, b"sonate_destroy\0"),
+    }
+}
+
+fn handle_requests(
+    rx: ipc::IpcReceiver<WorkerRequest>,
+    api: SonateApi,
+    main_tx: std::sync::mpsc::Sender<MainThreadTask>,
+) {
+    unsafe {
         loop {
             let msg = match rx.recv() {
                 Ok(m) => m,
@@ -170,11 +228,11 @@ fn main() {
 
             match msg {
                 WorkerRequest::InitInternal { handle } => {
-                    sonate_init_internal(handle as EngineHandle);
+                    (api.init_internal)(handle as EngineHandle);
                 }
                 WorkerRequest::AddStylesheet { handle, css } => match CString::new(css) {
                     Ok(c_css) => {
-                        sonate_add_stylesheet(handle as EngineHandle, c_css.as_ptr());
+                        (api.add_stylesheet)(handle as EngineHandle, c_css.as_ptr());
                     }
                     Err(_) => {
                         eprintln!("worker: stylesheet contains interior NUL byte");
@@ -187,7 +245,7 @@ fn main() {
                 } => {
                     match text {
                         None => {
-                            let _ = sonate_create_node(
+                            let _ = (api.create_node)(
                                 handle as EngineHandle,
                                 node_id,
                                 std::ptr::null(),
@@ -195,7 +253,7 @@ fn main() {
                         }
                         Some(s) => match CString::new(s) {
                             Ok(c_text) => {
-                                let _ = sonate_create_node(
+                                let _ = (api.create_node)(
                                     handle as EngineHandle,
                                     node_id,
                                     c_text.as_ptr(),
@@ -208,14 +266,14 @@ fn main() {
                     };
                 }
                 WorkerRequest::DestroyNode { handle, node_id } => {
-                    sonate_destroy_node(handle as EngineHandle, node_id);
+                    (api.destroy_node)(handle as EngineHandle, node_id);
                 }
                 WorkerRequest::SetParent {
                     handle,
                     parent_id,
                     child_id,
                 } => {
-                    sonate_set_parent(handle as EngineHandle, parent_id, child_id);
+                    (api.set_parent)(handle as EngineHandle, parent_id, child_id);
                 }
                 WorkerRequest::SetAttribute {
                     handle,
@@ -238,15 +296,32 @@ fn main() {
                         }
                     };
 
-                    sonate_set_attribute(
+                    (api.set_attribute)(
                         handle as EngineHandle,
                         node_id,
                         c_key.as_ptr(),
                         c_value.as_ptr(),
                     );
                 }
+                WorkerRequest::SetText {
+                    handle,
+                    node_id,
+                    text,
+                } => match text {
+                    None => {
+                        (api.set_text)(handle as EngineHandle, node_id, std::ptr::null());
+                    }
+                    Some(s) => match CString::new(s) {
+                        Ok(c_text) => {
+                            (api.set_text)(handle as EngineHandle, node_id, c_text.as_ptr());
+                        }
+                        Err(_) => {
+                            eprintln!("worker: text content contains interior NUL byte");
+                        }
+                    },
+                },
                 WorkerRequest::RootId { handle, reply_to } => {
-                    let id = sonate_root_id(handle as EngineHandle);
+                    let id = (api.root_id)(handle as EngineHandle);
                     let _ = reply_to.send(id);
                 }
                 WorkerRequest::SetEventSender { handle, sender } => {
@@ -255,7 +330,7 @@ fn main() {
                         .unwrap()
                         .insert(handle as EngineHandle, sender);
 
-                    let code = sonate_set_event_callback(
+                    let code = (api.set_event_callback)(
                         handle as EngineHandle,
                         Some(forward_worker_event),
                         std::ptr::null_mut(),
@@ -265,11 +340,16 @@ fn main() {
                     }
                 }
                 WorkerRequest::Run { handle, reply_to } => {
-                    let code = sonate_run(handle as EngineHandle);
-                    let _ = reply_to.send(code);
+                    if let Err(e) = main_tx.send(MainThreadTask::Run {
+                        handle: handle as EngineHandle,
+                        reply_to,
+                    }) {
+                        eprintln!("worker: failed to dispatch Run to main thread: {e}");
+                        break;
+                    }
                 }
                 WorkerRequest::Destroy { handle, reply_to } => {
-                    let code = sonate_destroy(handle as EngineHandle);
+                    let code = (api.destroy)(handle as EngineHandle);
                     EVENT_SENDERS
                         .lock()
                         .unwrap()
@@ -283,6 +363,10 @@ fn main() {
             }
         }
     }
+
+    // Dropping `main_tx` ends the main-thread loop once no run is in flight;
+    // exit explicitly so the process does not linger if a window is open.
+    std::process::exit(0);
 }
 
 fn resolve_library_path() -> PathBuf {

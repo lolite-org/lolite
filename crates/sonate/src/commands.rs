@@ -16,6 +16,7 @@ pub(crate) enum Command {
     CreateNode(Id, Option<String>),
     SetParent(Id, Id),
     SetAttribute(Id, String, String),
+    SetText(Id, Option<String>),
     InputSetFocusedTextInput(Option<Id>),
     InputInsertText(String),
     InputDeleteBackward,
@@ -204,6 +205,12 @@ pub(crate) fn handle_commands(
                 }
                 Command::SetAttribute(id, k, v) => {
                     ctx.document.set_attribute(id, k, v);
+                    if deadline.is_none() {
+                        deadline = Some(Instant::now() + Duration::from_millis(100));
+                    }
+                }
+                Command::SetText(id, text) => {
+                    ctx.document.set_text(id, text);
                     if deadline.is_none() {
                         deadline = Some(Instant::now() + Duration::from_millis(100));
                     }

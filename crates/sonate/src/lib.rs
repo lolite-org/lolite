@@ -283,6 +283,13 @@ impl Engine {
             .expect("data thread down");
     }
 
+    /// Set (or clear) the text content of a node
+    pub fn set_text(&self, node_id: Id, text: Option<String>) {
+        self.sender
+            .send(Command::SetText(node_id, text))
+            .expect("data thread down");
+    }
+
     /// Remove a node and all its descendants from the document
     pub fn remove_node(&self, node_id: Id) {
         self.sender

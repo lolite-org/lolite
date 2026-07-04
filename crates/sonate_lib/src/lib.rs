@@ -40,8 +40,7 @@ pub struct SonateEvent {
     pub element_count: usize,
 }
 
-type EngineBox = Box<dyn EngineBackend>;
-type EngineRef = Arc<Mutex<EngineBox>>;
+type EngineRef = Arc<dyn EngineBackend>;
 
 static ENGINE_INSTANCES: std::sync::LazyLock<Mutex<HashMap<EngineHandle, EngineRef>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -60,11 +59,11 @@ static NEXT_HANDLE: AtomicUsize = AtomicUsize::new(1);
 pub extern "C" fn sonate_init(use_same_process: bool) -> EngineHandle {
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
 
-    let backend: EngineBox = if use_same_process {
-        Box::new(DirectBackend::new(handle))
+    let backend: EngineRef = if use_same_process {
+        Arc::new(DirectBackend::new(handle))
     } else {
         match WorkerBackend::new(handle) {
-            Ok(b) => Box::new(b),
+            Ok(b) => Arc::new(b),
             Err(e) => {
                 eprintln!("Failed to create worker instance: {}", e);
                 return 0;
@@ -72,20 +71,17 @@ pub extern "C" fn sonate_init(use_same_process: bool) -> EngineHandle {
         }
     };
 
-    ENGINE_INSTANCES
-        .lock()
-        .unwrap()
-        .insert(handle, Arc::new(Mutex::new(backend)));
+    ENGINE_INSTANCES.lock().unwrap().insert(handle, backend);
 
     handle
 }
 
 #[no_mangle]
 pub extern "C" fn sonate_init_internal(handle: EngineHandle) {
-    ENGINE_INSTANCES.lock().unwrap().insert(
-        handle,
-        Arc::new(Mutex::new(Box::new(DirectBackend::new(handle)))),
-    );
+    ENGINE_INSTANCES
+        .lock()
+        .unwrap()
+        .insert(handle, Arc::new(DirectBackend::new(handle)));
 }
 
 fn get_engine(handle: EngineHandle) -> Option<EngineRef> {
@@ -122,7 +118,7 @@ pub extern "C" fn sonate_add_stylesheet(handle: EngineHandle, css_content: *cons
         return;
     };
 
-    engine.lock().unwrap().add_stylesheet(css_str);
+    engine.add_stylesheet(css_str);
 }
 
 /// Create a new document node
@@ -166,7 +162,7 @@ pub extern "C" fn sonate_create_node(
         return 0;
     };
 
-    engine.lock().unwrap().create_node(node_id, text);
+    engine.create_node(node_id, text);
     node_id
 }
 
@@ -191,7 +187,7 @@ pub extern "C" fn sonate_set_parent(handle: EngineHandle, parent_id: SonateId, c
         return;
     };
 
-    engine.lock().unwrap().set_parent(parent_id, child_id);
+    engine.set_parent(parent_id, child_id);
 }
 
 /// Set an attribute on a node
@@ -242,10 +238,49 @@ pub extern "C" fn sonate_set_attribute(
         return;
     };
 
-    engine
-        .lock()
-        .unwrap()
-        .set_attribute(node_id, key_str, value_str);
+    engine.set_attribute(node_id, key_str, value_str);
+}
+
+/// Set (or clear) the text content of a node
+///
+/// # Arguments
+/// * `handle` - Engine handle returned from sonate_init
+/// * `node_id` - ID of the node
+/// * `text_content` - Null-terminated text content, or null to clear the text
+#[no_mangle]
+pub extern "C" fn sonate_set_text(
+    handle: EngineHandle,
+    node_id: SonateId,
+    text_content: *const c_char,
+) {
+    if handle == 0 {
+        eprintln!("Invalid engine handle");
+        return;
+    }
+
+    if node_id == 0 {
+        eprintln!("Invalid node id (0 is reserved for root)");
+        return;
+    }
+
+    let text = if text_content.is_null() {
+        None
+    } else {
+        match unsafe { CStr::from_ptr(text_content) }.to_str() {
+            Ok(s) => Some(s.to_string()),
+            Err(e) => {
+                eprintln!("Invalid UTF-8 in text content: {}", e);
+                return;
+            }
+        }
+    };
+
+    let Some(engine) = get_engine(handle) else {
+        eprintln!("Engine handle not found");
+        return;
+    };
+
+    engine.set_text(node_id, text);
 }
 
 /// Remove a node and its descendants from the document.
@@ -270,7 +305,7 @@ pub extern "C" fn sonate_destroy_node(handle: EngineHandle, node_id: SonateId) {
         return;
     };
 
-    engine.lock().unwrap().destroy_node(node_id);
+    engine.destroy_node(node_id);
 }
 
 /// Get the root node ID of the document
@@ -292,7 +327,7 @@ pub extern "C" fn sonate_root_id(handle: EngineHandle) -> SonateId {
         return 0;
     };
 
-    let id = engine.lock().unwrap().root_id();
+    let id = engine.root_id();
     id
 }
 
@@ -316,12 +351,7 @@ pub extern "C" fn sonate_set_event_callback(
         return -1;
     };
 
-    let result = engine
-        .lock()
-        .unwrap()
-        .set_event_callback(callback, user_data);
-
-    result
+    engine.set_event_callback(callback, user_data)
 }
 
 /// Run the engine event loop (blocking).
@@ -343,7 +373,7 @@ pub extern "C" fn sonate_run(handle: EngineHandle) -> c_int {
         return -1;
     };
 
-    let code = engine.lock().unwrap().run();
+    let code = engine.run();
     code
 }
 
@@ -367,6 +397,6 @@ pub extern "C" fn sonate_destroy(handle: EngineHandle) -> c_int {
         return -1;
     };
 
-    let code = engine.lock().unwrap().destroy();
+    let code = engine.destroy();
     code
 }
