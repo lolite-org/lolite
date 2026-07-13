@@ -338,7 +338,49 @@ fn current_library_dir() -> Option<PathBuf> {
     path.parent().map(|dir| dir.to_path_buf())
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn current_library_dir() -> Option<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::System::LibraryLoader::{
+        GetModuleFileNameW, GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+    };
+
+    let mut module = ptr::null_mut();
+    let flags =
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
+    let address = resolve_worker_path as *const () as *const u16;
+
+    if unsafe { GetModuleHandleExW(flags, address, &mut module) } == 0 {
+        return None;
+    }
+
+    // Windows paths are UTF-16. Cap the buffer at 64 KiB (32,768 code
+    // units) so an unexpected API result cannot cause unbounded growth.
+    const MAX_MODULE_PATH_LENGTH: usize = 32 * 1024;
+    let mut path = vec![0u16; 260];
+    loop {
+        let length = unsafe { GetModuleFileNameW(module, path.as_mut_ptr(), path.len() as u32) };
+        if length == 0 {
+            return None;
+        }
+
+        if (length as usize) < path.len() {
+            path.truncate(length as usize);
+            let path = PathBuf::from(OsString::from_wide(&path));
+            return path.parent().map(|dir| dir.to_path_buf());
+        }
+
+        if path.len() == MAX_MODULE_PATH_LENGTH {
+            return None;
+        }
+
+        path.resize((path.len() * 2).min(MAX_MODULE_PATH_LENGTH), 0);
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 fn current_library_dir() -> Option<PathBuf> {
     None
 }
